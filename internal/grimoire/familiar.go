@@ -19,22 +19,42 @@ type agentFamiliar struct {
 	Home  string
 }
 
+type familiarDefinition struct {
+	name  string
+	label string
+	home  func(Paths) string
+}
+
+var familiarMetadata = [...]familiarDefinition{
+	{name: "claude", label: "Claude Code", home: func(paths Paths) string { return paths.ClaudeHome }},
+	{name: "opencode", label: "OpenCode", home: func(paths Paths) string { return paths.OpenCodeHome }},
+	{name: "codex", label: "Codex", home: func(paths Paths) string { return paths.CodexHome }},
+}
+
+func (f familiarDefinition) skillsHome(paths Paths) string {
+	return filepath.Join(f.home(paths), "skills")
+}
+
 func availableFamiliars(paths Paths) []agentFamiliar {
-	return []agentFamiliar{
-		{Name: "claude", Label: "Claude Code", Home: filepath.Join(paths.ClaudeHome, "skills")},
-		{Name: "opencode", Label: "OpenCode", Home: filepath.Join(paths.OpenCodeHome, "skills")},
-		{Name: "codex", Label: "Codex", Home: filepath.Join(paths.CodexHome, "skills")},
+	familiars := make([]agentFamiliar, 0, len(familiarMetadata))
+	for _, familiar := range familiarMetadata {
+		familiars = append(familiars, agentFamiliar{
+			Name:  familiar.name,
+			Label: familiar.label,
+			Home:  familiar.skillsHome(paths),
+		})
 	}
+	return familiars
 }
 
 func normalizeFamiliar(raw string) (string, error) {
 	name := strings.ToLower(strings.TrimSpace(raw))
-	switch name {
-	case "claude", "opencode", "codex":
-		return name, nil
-	default:
-		return "", fmt.Errorf("unknown familiar %s; choose claude, opencode, or codex", raw)
+	for _, familiar := range familiarMetadata {
+		if familiar.name == name {
+			return name, nil
+		}
 	}
+	return "", fmt.Errorf("unknown familiar %s; choose claude, opencode, or codex", raw)
 }
 
 func configuredFamiliar(paths Paths) (string, error) {
@@ -53,36 +73,7 @@ func configuredFamiliar(paths Paths) (string, error) {
 }
 
 func writeFamiliar(paths Paths, name string) error {
-	if err := os.MkdirAll(paths.ConfigHome, 0o755); err != nil {
-		return err
-	}
-	body, err := json.MarshalIndent(name, "", "  ")
-	if err != nil {
-		return err
-	}
-	body = append(body, '\n')
-	temporary, err := os.CreateTemp(paths.ConfigHome, ".familiar-*.json")
-	if err != nil {
-		return err
-	}
-	temporaryName := temporary.Name()
-	cleanup := func() {
-		_ = temporary.Close()
-		_ = os.Remove(temporaryName)
-	}
-	if _, err := temporary.Write(body); err != nil {
-		cleanup()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		cleanup()
-		return err
-	}
-	if err := os.Rename(temporaryName, paths.FamiliarFile()); err != nil {
-		cleanup()
-		return err
-	}
-	return nil
+	return writeJSONFile(paths.FamiliarFile(), name)
 }
 
 func commandNeedsFamiliar(command string) bool {
@@ -98,6 +89,9 @@ func (c *CLI) configureFamiliar(args []string) (int, error) {
 	if len(args) > 1 {
 		return 1, fmt.Errorf("familiar accepts one name")
 	}
+	if len(args) == 0 && c.Config.Boring {
+		return 1, fmt.Errorf("boring mode has no picker; pass one familiar name: claude, opencode, or codex")
+	}
 	current := c.Paths.Familiar
 	selected := ""
 	if len(args) == 1 {
@@ -109,7 +103,7 @@ func (c *CLI) configureFamiliar(args []string) (int, error) {
 	} else if input, output, ok := terminalFiles(c.In, c.Err); ok {
 		var saved bool
 		var err error
-		selected, saved, err = (FamiliarPicker{In: input, Out: output, Theme: NewTheme(output), Home: c.Paths.Home}).Pick(availableFamiliars(c.Paths), current)
+		selected, saved, err = (FamiliarPicker{In: input, Out: output, Theme: c.theme(output), Home: c.Paths.Home}).Pick(availableFamiliars(c.Paths), current)
 		if err != nil {
 			return 1, err
 		}
@@ -149,11 +143,14 @@ func (c *CLI) ensureFamiliar() (bool, error) {
 	if c.Paths.Familiar != "" {
 		return true, nil
 	}
+	if c.Config.Boring {
+		return false, noFamiliarError()
+	}
 	input, output, ok := terminalFiles(c.In, c.Err)
 	if !ok {
 		return false, noFamiliarError()
 	}
-	selected, saved, err := (FamiliarPicker{In: input, Out: output, Theme: NewTheme(output), Home: c.Paths.Home}).Pick(availableFamiliars(c.Paths), "")
+	selected, saved, err := (FamiliarPicker{In: input, Out: output, Theme: c.theme(output), Home: c.Paths.Home}).Pick(availableFamiliars(c.Paths), "")
 	if err != nil {
 		return false, err
 	}
@@ -182,9 +179,14 @@ func noFamiliarError() error {
 }
 
 func (c *CLI) showFamiliar(name string) {
-	theme := NewTheme(c.Out)
 	for _, familiar := range availableFamiliars(c.Paths) {
 		if familiar.Name == name {
+			if c.Config.Boring {
+				fmt.Fprintf(c.Out, "familiar=%s\n", familiar.Name)
+				fmt.Fprintf(c.Out, "skills=%s\n", shortPath(familiar.Home, c.Paths.Home))
+				return
+			}
+			theme := c.theme(c.Out)
 			fmt.Fprintln(c.Out, theme.Tag("paw", Amber)+theme.Paint("the grimoire is bound to ", Grey)+theme.Paint(familiar.Label, Violet))
 			fmt.Fprintln(c.Out, theme.Tag("star", Grey)+theme.Paint(shortPath(familiar.Home, c.Paths.Home), Grey))
 			return

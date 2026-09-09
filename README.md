@@ -68,11 +68,23 @@ grimoire toc                 # browse the catalog
 grimoire cast some-skill     # link one skill into your agent
 ```
 
+Rich output is the default. To use short, plain output for scripts or quiet
+terminals, enable boring mode:
+
+```sh
+grimoire config boring true
+```
+
+Boring mode has no color, icons, art, animation, decorative pages, or
+full-screen views. Commands that usually open a picker require a skill name or
+path. Use `grimoire index --refresh` to refresh without a question. Run
+`grimoire config boring false` to restore rich output.
+
 The selection is stored in `~/.config/grimoire/bindings.json`, so every other
 command works from any directory. Run `bind` again in the same repository to
 replace its selection. Run `unbind` from any directory to choose from all bound
-skills. Run `index` to list every bound repository and `--refresh` to update
-them all.
+skills. Run `index` to list every bound repository. In a terminal, it then asks
+if you want to refresh them. Use `--refresh` to update them without the question.
 
 ## Commands
 
@@ -129,9 +141,12 @@ $ grimoire --help
 ║                            Alias: bond.                                    │
 ║      unbind [SKILL...]     Forgets bound skills. Without SKILL, opens the  │
 ║                            tree. Alias: unbond.                            │
-║      index                 Lists the bound repositories.                   │
-║        --refresh           Safely pulls the latest in each.                │
+║      index                 Lists bound repositories and offers to refresh  │
+║                            them.                                           │
+║        --refresh           Refreshes now and repairs managed links.        │
 ║      familiar [NAME]       Chooses Claude, OpenCode, or Codex.             │
+║      config boring [true|false]                                            │
+║          Turns minimal, non-interactive output on or off.                  │
 ║      hone                  Repairs the links you already installed.        │
 ║        --dry-run           Shows the report. Changes nothing.              │
 ║      help | -h | --help    Shows this page.                                │
@@ -151,6 +166,9 @@ $ grimoire --help
 
 Selects skills found in the current Git repository. Names or repository-relative
 paths bypass the picker. `bond` is an alias.
+
+If an older Grimoire catalog-root symlink exists, the command leaves it unchanged.
+Add `--replace-legacy-root` to approve its replacement with managed skill links.
 
 ```text
 $ grimoire bind test-skill
@@ -196,6 +214,9 @@ that contains every bound skill, so the command works from any directory. Names
 or repository-relative paths bypass the picker. Source folders and installed
 agent links stay. `unbond` is an alias.
 
+Use `--replace-legacy-root` to approve replacement of an older catalog-root
+symlink during unbind.
+
 ```text
 $ grimoire unbind
 unbind which?
@@ -206,8 +227,15 @@ arrows move  space marks  right opens  left closes  enter confirms  esc quits
 
 ### `grimoire index [--refresh]`
 
-Lists every bound repository with its selected skill count. A missing folder is
-flagged. `--refresh` pulls the latest in each repository, safely:
+Lists every bound repository with its selected skill count and reports missing
+skills or broken catalog links. In a terminal, `index` asks if you want to
+refresh. `--refresh` starts the refresh without the question.
+
+Refresh also repairs managed catalog and installed links. It follows a
+Git-detected skill path rename when the skill definition is unchanged apart
+from its top-level name. Bind and healthy refreshes record the repository
+identity. If that repository folder is later renamed in the same parent folder,
+refresh updates the binding. The pull remains safe:
 
 1. A missing folder, or a folder that is not a Git repository, fails without
    touching anything.
@@ -230,6 +258,8 @@ $ grimoire index
 ║                                                                            │
 ╙────────────────────────────── 1 repositories ──────────────────────────────┘
 
+refresh repositories now? [y/N]
+
 $ grimoire index --refresh
 /tmp/opencode/clone already up to date
 
@@ -238,8 +268,10 @@ $ grimoire index --refresh
 
 ### `grimoire toc`
 
-Opens a searchable catalog. Prints the catalog when piped. `list` and `ls` are
-aliases.
+Opens a searchable catalog. Search terms must match a name, group, or individual
+description word. Dense fuzzy matches and one-character typos are accepted;
+sparse matches across a long description are not. The command prints the
+catalog when piped. `list` and `ls` are aliases.
 
 ```text
 $ grimoire toc
@@ -267,6 +299,19 @@ Chooses one agent: `claude`, `opencode`, or `codex`.
 $ grimoire familiar claude
 the grimoire is bound to Claude Code
 /tmp/opencode/claude-home/skills
+```
+
+### `grimoire config boring [true|false]`
+
+Shows or changes the persistent output mode. `grimoire config` shows the
+current value. `grimoire config boring` enables boring mode. The values
+`true` and `false` are case-sensitive.
+
+```text
+$ grimoire config
+boring=false
+$ grimoire config boring true
+boring=true
 ```
 
 ### `grimoire cast [SKILL]`
@@ -339,6 +384,7 @@ Installs every bound skill. Safe to run repeatedly.
 
 ```text
 $ grimoire volley
+test-skill installed
 installed 1, skipped 0, failed 0
 ```
 
@@ -348,7 +394,7 @@ Writes `output/NAME.zip` in that skill's repository.
 
 ```text
 $ grimoire effigy test-skill
-test-skill /tmp/opencode/output/test-skill.zip 401 B
+packed test-skill to /tmp/opencode/output/test-skill.zip (401 B)
 ```
 
 ### `grimoire hone [--dry-run]`
@@ -393,6 +439,7 @@ Casting a skill creates one absolute symlink in the chosen familiar's home:
 
 - The familiar choice is stored in `~/.config/grimoire/familiar.json`.
   Changing it affects future commands only; old links stay in place.
+- Output options are stored in `~/.config/grimoire/config.json`.
 - Missing destination directories are created.
 - A real directory, file, or foreign symlink holding a name blocks the cast.
   Nothing is overwritten.

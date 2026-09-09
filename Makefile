@@ -1,5 +1,5 @@
 BINARY := grimoire
-GOLANGCI_LINT_VERSION ?= v2.12.2
+GOLANGCI_LINT_VERSION ?= v2.13.2
 
 GOBIN := $(shell go env GOBIN)
 ifeq ($(GOBIN),)

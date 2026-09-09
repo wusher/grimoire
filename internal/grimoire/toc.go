@@ -62,21 +62,32 @@ func (b CatalogBrowser) Browse(skills []Skill) error {
 			scroll = max(0, scroll-1)
 		case "down":
 			scroll = min(maxScroll, scroll+1)
-		case "backspace":
-			if query != "" {
-				_, size := utf8.DecodeLastRuneInString(query)
-				query = query[:len(query)-size]
-				scroll = 0
-			}
-		case "space":
-			// Spaces do not change the fuzzy match, so ignore them.
 		default:
-			if utf8.RuneCountInString(key) == 1 {
-				query += key
+			var changed bool
+			query, changed = editCatalogQuery(query, key)
+			if changed {
 				scroll = 0
 			}
 		}
 		drawn = false
+	}
+}
+
+func editCatalogQuery(query, key string) (string, bool) {
+	switch key {
+	case "backspace":
+		if query == "" {
+			return query, false
+		}
+		_, size := utf8.DecodeLastRuneInString(query)
+		return query[:len(query)-size], true
+	case "space":
+		return query + " ", true
+	default:
+		if utf8.RuneCountInString(key) == 1 {
+			return query + key, true
+		}
+		return query, false
 	}
 }
 
@@ -147,7 +158,9 @@ func filterCatalogSkills(query string, skills []Skill) []Skill {
 		if group == "" {
 			group = "loose leaves"
 		}
-		if _, ok := MatchScore(query, group+" "+skill.Name+" "+skill.Description); ok {
+		searchable := skill
+		searchable.Group = group
+		if _, ok := skillMatchScore(query, searchable); ok {
 			found = append(found, skill)
 		}
 	}

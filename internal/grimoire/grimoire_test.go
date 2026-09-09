@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +16,9 @@ import (
 
 func testPaths(t *testing.T) Paths {
 	t.Helper()
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Setenv("GIT_ATTR_NOSYSTEM", "1")
 	root := t.TempDir()
 	repo := filepath.Join(root, "library")
 	if err := os.MkdirAll(filepath.Join(repo, "skills"), 0o755); err != nil {
@@ -228,7 +232,7 @@ func TestUnbindSkillsKeepsSourcesInstalledLinksAndOtherBindings(t *testing.T) {
 	if result := BindSkills(paths, second, []Skill{ReadSkill(gammaDir, second, paths.SkillsHomes())}); !result.OK() {
 		t.Fatal(result.Message)
 	}
-	if result := Install(firstSkills[0]); result.Status != Installed {
+	if result := Install(paths, firstSkills[0]); result.Status != Installed {
 		t.Fatalf("install = %#v", result)
 	}
 
@@ -275,7 +279,8 @@ func TestUnbindSkillsKeepsSourcesInstalledLinksAndOtherBindings(t *testing.T) {
 func TestUnbindSkillsDoesNotReplaceAForeignCatalogRoot(t *testing.T) {
 	paths := testPaths(t)
 	paths.Repo = ""
-	repo := filepath.Join(paths.Home, "repo")
+	foreign := filepath.Join(paths.Home, "skills")
+	repo := filepath.Join(foreign, "repo")
 	initGit(t, repo)
 	alphaDir := makeSkillIn(t, repo, "", "alpha", "First")
 	alpha := ReadSkill(alphaDir, repo, paths.SkillsHomes())
@@ -285,14 +290,14 @@ func TestUnbindSkillsDoesNotReplaceAForeignCatalogRoot(t *testing.T) {
 	if err := os.RemoveAll(paths.Binding()); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(paths.Home, paths.Binding()); err != nil {
+	if err := os.Symlink(foreign, paths.Binding()); err != nil {
 		t.Fatal(err)
 	}
 	if result := UnbindSkills(paths, []Skill{alpha}); result.Status != Blocked || !strings.Contains(result.Message, "foreign symlink") {
 		t.Fatalf("unbind over foreign root = %#v", result)
 	}
 	target, err := os.Readlink(paths.Binding())
-	if err != nil || target != paths.Home {
+	if err != nil || target != foreign {
 		t.Fatalf("foreign root = %q, error = %v", target, err)
 	}
 	bound, err := BoundSkills(paths)
@@ -319,7 +324,7 @@ func TestBindNeverOverwritesForeignSkill(t *testing.T) {
 	}
 }
 
-func TestBindMigratesLegacyWholeLibrarySymlink(t *testing.T) {
+func TestApprovedBindMigratesLegacyWholeLibrarySymlink(t *testing.T) {
 	paths := testPaths(t)
 	paths.Repo = ""
 	legacy := filepath.Join(paths.Home, "legacy")
@@ -334,7 +339,7 @@ func TestBindMigratesLegacyWholeLibrarySymlink(t *testing.T) {
 	if err := os.Symlink(filepath.Join(legacy, "skills"), paths.Binding()); err != nil {
 		t.Fatal(err)
 	}
-	if result := BindLibrary(paths, newRepo); result.Status != Bound {
+	if result := BindLibraryWithOptions(paths, newRepo, BindingOptions{ReplaceLegacyCatalogRoot: true}); result.Status != Bound {
 		t.Fatalf("bind = %#v", result)
 	}
 	info, err := os.Lstat(paths.Binding())
@@ -346,6 +351,34 @@ func TestBindMigratesLegacyWholeLibrarySymlink(t *testing.T) {
 	libraries, err := paths.Libraries()
 	if err != nil || len(libraries) != 2 || libraries[0] != legacy || libraries[1] != newRepo {
 		t.Fatalf("repositories = %#v, error = %v", libraries, err)
+	}
+}
+
+func TestApprovedUnbindMigratesALegacyDirectRoot(t *testing.T) {
+	paths := testPaths(t)
+	paths.Repo = ""
+	legacy := filepath.Join(paths.Home, "legacy")
+	alpha := makeSkillIn(t, legacy, "", "alpha", "Legacy")
+	if err := os.MkdirAll(paths.ConfigHome, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(legacy, paths.Binding()); err != nil {
+		t.Fatal(err)
+	}
+	bound, err := BoundSkills(paths)
+	if err != nil || len(bound) != 1 || bound[0].Dir != alpha {
+		t.Fatalf("legacy bound skills = %#v, error = %v", bound, err)
+	}
+	if result := UnbindSkillsWithOptions(paths, bound, BindingOptions{ReplaceLegacyCatalogRoot: true}); result.Status != Unbound {
+		t.Fatalf("legacy unbind = %#v", result)
+	}
+	info, err := os.Lstat(paths.Binding())
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		t.Fatalf("legacy root was not migrated to a directory: %v, %#v", err, info)
+	}
+	body, err := os.ReadFile(paths.BindingsFile())
+	if err != nil || string(body) != "[]\n" {
+		t.Fatalf("legacy bindings = %q, error = %v", body, err)
 	}
 }
 
@@ -421,16 +454,16 @@ func TestInstallAndUninstallUseTheChosenFamiliar(t *testing.T) {
 	if err != nil || skill == nil {
 		t.Fatalf("find: %v %#v", err, skill)
 	}
-	if result := Install(*skill); result.Status != Installed {
+	if result := Install(paths, *skill); result.Status != Installed {
 		t.Fatalf("install = %#v", result)
 	}
 	if !skill.Installed() {
 		t.Fatal("skill should be installed in the familiar home")
 	}
-	if result := Install(*skill); result.Status != AlreadyStatus {
+	if result := Install(paths, *skill); result.Status != AlreadyStatus {
 		t.Fatalf("second install = %s", result.Status)
 	}
-	if result := Uninstall(*skill); result.Status != Removed {
+	if result := Uninstall(paths, *skill); result.Status != Removed {
 		t.Fatalf("uninstall = %#v", result)
 	}
 	for _, link := range skill.LinkPaths() {
@@ -452,7 +485,7 @@ func TestInstallDoesNotOverwriteTheFamiliarDestination(t *testing.T) {
 	if err := os.MkdirAll(link, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	result := Install(*skill)
+	result := Install(paths, *skill)
 	if result.Status != InstallBlocked {
 		t.Fatalf("install = %s, want blocked", result.Status)
 	}
@@ -487,10 +520,10 @@ func TestInstallerRequiresAFamiliar(t *testing.T) {
 	paths := testPaths(t)
 	dir := makeSkill(t, paths, "", "alpha", "First")
 	skill := ReadSkill(dir, filepath.Join(paths.Repo, "skills"), nil)
-	if result := Install(skill); result.Status != InstallBlocked || result.Message != "no familiar chosen" {
+	if result := Install(paths, skill); result.Status != InstallBlocked || result.Message != "no familiar chosen" {
 		t.Fatalf("install without familiar = %#v", result)
 	}
-	if result := Uninstall(skill); result.Status != InstallBlocked || result.Message != "no familiar chosen" {
+	if result := Uninstall(paths, skill); result.Status != InstallBlocked || result.Message != "no familiar chosen" {
 		t.Fatalf("uninstall without familiar = %#v", result)
 	}
 }
@@ -541,7 +574,7 @@ func TestFamiliarChangeDoesNotMoveExistingLinks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result := Install(catalog.Skills[0]); result.Status != Installed {
+	if result := Install(paths, catalog.Skills[0]); result.Status != Installed {
 		t.Fatalf("install = %#v", result)
 	}
 	var out bytes.Buffer
@@ -611,13 +644,20 @@ func TestCLIRepairsInvalidFamiliarConfiguration(t *testing.T) {
 func TestHoneRepairsTheFamiliarHome(t *testing.T) {
 	paths := testPaths(t)
 	wanted := makeSkill(t, paths, "tools", "alpha", "First")
+	ownership := ownershipState{Version: ownershipVersion}
 	for _, home := range paths.SkillsHomes() {
 		if err := os.MkdirAll(home, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.Symlink(filepath.Join(paths.Home, "old-library", "skills", "alpha"), filepath.Join(home, "alpha")); err != nil {
+		link := filepath.Join(home, "alpha")
+		old := filepath.Join(paths.Home, "old-library", "skills", "alpha")
+		if err := os.Symlink(old, link); err != nil {
 			t.Fatal(err)
 		}
+		ownership.set(link, old)
+	}
+	if err := writeOwnership(paths, ownership); err != nil {
+		t.Fatal(err)
 	}
 	changes, err := Hone(paths, false)
 	if err != nil {
@@ -631,6 +671,44 @@ func TestHoneRepairsTheFamiliarHome(t *testing.T) {
 		if err != nil || target != wanted {
 			t.Fatalf("repaired target = %s, %v", target, err)
 		}
+	}
+}
+
+func TestCLIHoneReportsDryRunAndAppliedChanges(t *testing.T) {
+	paths := testPaths(t)
+	wanted := makeSkill(t, paths, "", "alpha", "First")
+	home := paths.SkillsHomes()[0]
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(home, "alpha")
+	old := filepath.Join(paths.Home, "old", "alpha")
+	if err := os.Symlink(old, link); err != nil {
+		t.Fatal(err)
+	}
+	ownership := ownershipState{Version: ownershipVersion}
+	ownership.set(link, old)
+	if err := writeOwnership(paths, ownership); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	cli := &CLI{In: strings.NewReader(""), Out: &out, Err: &out, Paths: paths}
+	if code := cli.Run(context.Background(), []string{"hone", "--dry-run"}); code != 0 {
+		t.Fatalf("dry-run code = %d: %s", code, out.String())
+	}
+	assertLinkTarget(t, link, old)
+	if !strings.Contains(out.String(), "would fix alpha") || !strings.Contains(out.String(), "1 to repair") {
+		t.Fatalf("dry-run output = %s", out.String())
+	}
+
+	out.Reset()
+	if code := cli.Run(context.Background(), []string{"hone"}); code != 0 {
+		t.Fatalf("hone code = %d: %s", code, out.String())
+	}
+	assertLinkTarget(t, link, wanted)
+	if !strings.Contains(out.String(), "fixed alpha") || !strings.Contains(out.String(), "1 repaired") {
+		t.Fatalf("hone output = %s", out.String())
 	}
 }
 
@@ -688,6 +766,19 @@ func TestEffigyUsesTheSelectedSkillsRepository(t *testing.T) {
 	}
 	if archive != filepath.Join(second, "output", "beta.zip") {
 		t.Fatalf("archive = %s", archive)
+	}
+}
+
+func TestCLIEffigyReportsWhatItPacked(t *testing.T) {
+	paths := testPaths(t)
+	makeSkill(t, paths, "", "alpha", "First")
+	var out bytes.Buffer
+	cli := &CLI{In: strings.NewReader(""), Out: &out, Err: &out, Paths: paths}
+	if code := cli.Run(context.Background(), []string{"effigy", "alpha"}); code != 0 {
+		t.Fatalf("effigy code = %d: %s", code, out.String())
+	}
+	if !strings.Contains(out.String(), "packed alpha to") || !strings.Contains(out.String(), "alpha.zip") {
+		t.Fatalf("effigy output = %s", out.String())
 	}
 }
 
@@ -792,7 +883,7 @@ func TestCatalogCommandsUseEveryBoundLibrary(t *testing.T) {
 	if code := cli.Run(context.Background(), []string{"volley"}); code != 0 {
 		t.Fatalf("volley code = %d: %s", code, out.String())
 	}
-	if !strings.Contains(out.String(), "installed 2") {
+	if !strings.Contains(out.String(), "installed 2") || !strings.Contains(out.String(), "alpha installed") || !strings.Contains(out.String(), "beta installed") {
 		t.Fatalf("volley output = %s", out.String())
 	}
 	for name, source := range map[string]string{"alpha": alpha, "beta": beta} {
@@ -1159,6 +1250,17 @@ func TestAnimationFramesFollowTheCurrentViewport(t *testing.T) {
 	}
 }
 
+func TestFireworksCapTheDrawingAreaOnLargeDisplays(t *testing.T) {
+	large := fireworkViewport(viewport{columns: 400, rows: 120})
+	if large.columns != fireworkCols || large.rows != fireworkRows {
+		t.Fatalf("large firework viewport = %#v", large)
+	}
+	small := viewport{columns: 80, rows: 24}
+	if got := fireworkViewport(small); got != small {
+		t.Fatalf("small firework viewport = %#v, want %#v", got, small)
+	}
+}
+
 func TestEveryNerdFontIconIsOneRune(t *testing.T) {
 	for name, icon := range icons {
 		if count := utf8.RuneCountInString(icon); count != 1 {
@@ -1207,6 +1309,28 @@ func TestMatchScorePrefersTightEarlyMatches(t *testing.T) {
 	}
 	if _, ok := MatchScore("ksa", "some-real-skill"); ok {
 		t.Fatal("out-of-order query matched")
+	}
+}
+
+func TestRankSkillsRejectsSparseMatchesInALargeCatalog(t *testing.T) {
+	var skills []Skill
+	for index := range 22 {
+		skills = append(skills, Skill{Name: fmt.Sprintf("kept-%03d", index), Group: "grimoire", Description: "A bound skill"})
+	}
+	for index := range 83 {
+		skills = append(skills, Skill{
+			Name: fmt.Sprintf("outside-%03d", index), Group: "other",
+			Description: "g scattered r scattered i scattered m scattered r scattered o scattered i scattered r scattered e",
+		})
+	}
+	matched := rankSkills("grimroire", skills)
+	if len(matched) != 22 {
+		t.Fatalf("grimroire matched %d of 105 skills, want 22", len(matched))
+	}
+	for _, skill := range matched {
+		if skill.Group != "grimoire" {
+			t.Fatalf("sparse match escaped the grimoire group: %#v", skill)
+		}
 	}
 }
 
@@ -1278,12 +1402,37 @@ func gitClone(t *testing.T, origin, clone string) {
 	}
 }
 
+func mutateCloneDuringFetch(t *testing.T, clone, dirtyFile string, changeHEAD bool) {
+	t.Helper()
+	script := filepath.Join(t.TempDir(), "upload-pack")
+	body := "#!/bin/sh\n"
+	if dirtyFile != "" {
+		t.Setenv("GRIMOIRE_FETCH_DIRTY_FILE", dirtyFile)
+		body += ": > \"$GRIMOIRE_FETCH_DIRTY_FILE\"\n"
+	}
+	if changeHEAD {
+		t.Setenv("GRIMOIRE_FETCH_HEAD_REPOSITORY", clone)
+		body += "git -C \"$GRIMOIRE_FETCH_HEAD_REPOSITORY\" -c user.name=Grimoire -c user.email=grimoire@test commit --allow-empty -q -m fetch-race\n"
+	}
+	body += "exec git-upload-pack \"$@\"\n"
+	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command("git", "-C", clone, "config", "remote.origin.uploadpack", script)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("configure upload-pack: %v: %s", err, output)
+	}
+}
+
 func TestIndexRefreshPullsOnlyCleanRepositories(t *testing.T) {
 	paths := testPaths(t)
 	origin := filepath.Join(paths.Home, "origin")
 	clone := filepath.Join(paths.Home, "clone")
 	initGit(t, origin)
 	makeSkillIn(t, origin, "", "alpha", "First")
+	if err := os.WriteFile(filepath.Join(origin, ".gitignore"), []byte("ignored.txt\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	gitCommitAll(t, origin, "one")
 	gitClone(t, origin, clone)
 
@@ -1304,6 +1453,22 @@ func TestIndexRefreshPullsOnlyCleanRepositories(t *testing.T) {
 	if got := PullLatest(clone); got.Status != CurrentBranch {
 		t.Fatalf("second refresh = %#v", got)
 	}
+	ignored := filepath.Join(clone, "ignored.txt")
+	if err := os.WriteFile(ignored, []byte("keep me"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := PullLatest(clone); got.Status != RefreshSkipped || !strings.Contains(got.Message, "uncommitted changes") {
+		t.Fatalf("repository with ignored work = %#v", got)
+	}
+	if body, err := os.ReadFile(ignored); err != nil || string(body) != "keep me" {
+		t.Fatalf("ignored file changed: %q, %v", body, err)
+	}
+	if err := os.Remove(ignored); err != nil {
+		t.Fatal(err)
+	}
+	if output, err := exec.Command("git", "-C", clone, "config", "status.showUntrackedFiles", "no").CombinedOutput(); err != nil {
+		t.Fatalf("configure status: %v: %s", err, output)
+	}
 
 	if err := os.WriteFile(filepath.Join(clone, "draft.md"), []byte("work in progress"), 0o644); err != nil {
 		t.Fatal(err)
@@ -1321,6 +1486,94 @@ func TestIndexRefreshPullsOnlyCleanRepositories(t *testing.T) {
 	}
 	if got := PullLatest(filepath.Join(paths.Home, "missing")); got.Status != RefreshFailed {
 		t.Fatalf("missing folder = %#v", got)
+	}
+}
+
+func TestPullLatestRechecksTheWorktreeAfterFetch(t *testing.T) {
+	paths := testPaths(t)
+	origin := filepath.Join(paths.Home, "origin")
+	clone := filepath.Join(paths.Home, "clone")
+	initGit(t, origin)
+	makeSkillIn(t, origin, "", "alpha", "First")
+	gitCommitAll(t, origin, "one")
+	gitClone(t, origin, clone)
+	makeSkillIn(t, origin, "", "beta", "Second")
+	gitCommitAll(t, origin, "two")
+	dirty := filepath.Join(clone, "created-during-fetch")
+	mutateCloneDuringFetch(t, clone, dirty, false)
+
+	got := PullLatest(clone)
+	if got.Status != RefreshSkipped || !strings.Contains(got.Message, "worktree changed during fetch") {
+		t.Fatalf("refresh result = %#v", got)
+	}
+	if _, err := os.Stat(dirty); err != nil {
+		t.Fatalf("fetch mutation is missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(clone, "beta")); !os.IsNotExist(err) {
+		t.Fatalf("remote update was merged after the worktree changed: %v", err)
+	}
+}
+
+func TestPullLatestRechecksHEADAfterFetch(t *testing.T) {
+	paths := testPaths(t)
+	origin := filepath.Join(paths.Home, "origin")
+	clone := filepath.Join(paths.Home, "clone")
+	initGit(t, origin)
+	makeSkillIn(t, origin, "", "alpha", "First")
+	gitCommitAll(t, origin, "one")
+	gitClone(t, origin, clone)
+	makeSkillIn(t, origin, "", "beta", "Second")
+	gitCommitAll(t, origin, "two")
+	before, err := gitOutput(clone, "rev-parse", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutateCloneDuringFetch(t, clone, "", true)
+
+	got := PullLatest(clone)
+	if got.Status != RefreshSkipped || !strings.Contains(got.Message, "HEAD changed during fetch") {
+		t.Fatalf("refresh result = %#v", got)
+	}
+	after, err := gitOutput(clone, "rev-parse", "HEAD")
+	if err != nil || after == before {
+		t.Fatalf("fetch hook did not change HEAD: %s, %v", after, err)
+	}
+	if _, err := os.Stat(filepath.Join(clone, "beta")); !os.IsNotExist(err) {
+		t.Fatalf("remote update was merged after HEAD changed: %v", err)
+	}
+}
+
+func TestSkillRenamesRejectsASimilarDeleteAndAdd(t *testing.T) {
+	repository := t.TempDir()
+	initGit(t, repository)
+	alpha := makeSkillIn(t, repository, "", "alpha", "First")
+	shared := strings.Repeat("Shared skill instructions stay exactly the same.\n", 20)
+	if err := os.WriteFile(filepath.Join(alpha, "SKILL.md"), []byte("---\nname: alpha\ndescription: First\n---\n"+shared), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitCommitAll(t, repository, "alpha")
+	before, err := gitOutput(repository, "rev-parse", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(repository, "alpha")); err != nil {
+		t.Fatal(err)
+	}
+	beta := makeSkillIn(t, repository, "", "beta", "Second")
+	if err := os.WriteFile(filepath.Join(beta, "SKILL.md"), []byte("---\nname: beta\ndescription: Second\n---\n"+shared), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitCommitAll(t, repository, "replace alpha with beta")
+	after, err := gitOutput(repository, "rev-parse", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := gitOutput(repository, "diff", "--name-status", "--find-renames", before, after)
+	if err != nil || !strings.Contains(raw, "R") {
+		t.Fatalf("test fixture was not detected as a Git rename: %q, %v", raw, err)
+	}
+	if renames := skillRenames(repository, before, after); len(renames) != 0 {
+		t.Fatalf("similar replacement was treated as a skill rename: %#v", renames)
 	}
 }
 
@@ -1355,6 +1608,372 @@ func TestCLIIndexReportsAndRefreshesBoundRepositories(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "already up to date") {
 		t.Fatalf("refresh output = %s", out.String())
+	}
+}
+
+func TestCLIIndexRefreshRepairsAMissingCatalogLink(t *testing.T) {
+	paths := testPaths(t)
+	paths.Repo = ""
+	origin := filepath.Join(paths.Home, "origin")
+	clone := filepath.Join(paths.Home, "clone")
+	initGit(t, origin)
+	makeSkillIn(t, origin, "", "alpha", "First")
+	gitCommitAll(t, origin, "one")
+	gitClone(t, origin, clone)
+	alpha := filepath.Join(clone, "alpha")
+	if result := BindLibrary(paths, clone); !result.OK() {
+		t.Fatal(result.Message)
+	}
+	if result := Install(paths, ReadSkill(alpha, clone, paths.SkillsHomes())); result.Status != Installed {
+		t.Fatalf("install = %#v", result)
+	}
+	if err := os.Remove(filepath.Join(paths.Binding(), "alpha")); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	cli := &CLI{In: strings.NewReader(""), Out: &out, Err: &out, Paths: paths}
+	if code := cli.Run(context.Background(), []string{"index"}); code != 0 {
+		t.Fatalf("index code = %d: %s", code, out.String())
+	}
+	if !strings.Contains(out.String(), "1 broken link") {
+		t.Fatalf("index health output = %s", out.String())
+	}
+	out.Reset()
+	if code := cli.Run(context.Background(), []string{"index", "--refresh"}); code != 0 {
+		t.Fatalf("refresh code = %d: %s", code, out.String())
+	}
+	assertLinkTarget(t, filepath.Join(paths.Binding(), "alpha"), alpha)
+	if !strings.Contains(out.String(), "1 link repaired") || !strings.Contains(out.String(), "catalog link") {
+		t.Fatalf("repair output = %s", out.String())
+	}
+}
+
+func TestCLIIndexRefreshFollowsARenamedSkill(t *testing.T) {
+	paths := testPaths(t)
+	paths.Repo = ""
+	origin := filepath.Join(paths.Home, "origin")
+	clone := filepath.Join(paths.Home, "clone")
+	initGit(t, origin)
+	makeSkillIn(t, origin, "", "alpha", "First")
+	gitCommitAll(t, origin, "one")
+	gitClone(t, origin, clone)
+	alpha := filepath.Join(clone, "alpha")
+	if result := BindLibrary(paths, clone); !result.OK() {
+		t.Fatal(result.Message)
+	}
+	if result := Install(paths, ReadSkill(alpha, clone, paths.SkillsHomes())); result.Status != Installed {
+		t.Fatalf("install = %#v", result)
+	}
+	openCodeHome := filepath.Join(paths.OpenCodeHome, "skills")
+	if err := os.MkdirAll(openCodeHome, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(alpha, filepath.Join(openCodeHome, "alpha")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(filepath.Join(origin, "alpha"), filepath.Join(origin, "beta")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(origin, "beta", "SKILL.md"), []byte("---\nname: beta\ndescription: First\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitCommitAll(t, origin, "rename alpha to beta")
+
+	var out bytes.Buffer
+	cli := &CLI{In: strings.NewReader(""), Out: &out, Err: &out, Paths: paths}
+	if code := cli.Run(context.Background(), []string{"index", "--refresh"}); code != 0 {
+		t.Fatalf("refresh code = %d: %s", code, out.String())
+	}
+	beta := filepath.Join(clone, "beta")
+	assertLinkTarget(t, filepath.Join(paths.Binding(), "beta"), beta)
+	assertLinkTarget(t, filepath.Join(paths.ClaudeHome, "skills", "beta"), beta)
+	assertLinkTarget(t, filepath.Join(openCodeHome, "beta"), beta)
+	for _, old := range []string{filepath.Join(paths.Binding(), "alpha"), filepath.Join(paths.ClaudeHome, "skills", "alpha"), filepath.Join(openCodeHome, "alpha")} {
+		if _, err := os.Lstat(old); !os.IsNotExist(err) {
+			t.Fatalf("old alpha link remains at %s: %v", old, err)
+		}
+	}
+	repositories, err := BoundRepositories(paths)
+	if err != nil || len(repositories) != 1 || !equalStrings(repositories[0].Skills, []string{"beta"}) {
+		t.Fatalf("bindings after rename = %#v, error = %v", repositories, err)
+	}
+	if !strings.Contains(out.String(), "renamed alpha to beta") {
+		t.Fatalf("rename output = %s", out.String())
+	}
+}
+
+func TestIndexRefreshLeavesAReplacedInstalledLinkAlone(t *testing.T) {
+	paths := testPaths(t)
+	paths.Repo = ""
+	origin := filepath.Join(paths.Home, "origin")
+	clone := filepath.Join(paths.Home, "clone")
+	initGit(t, origin)
+	makeSkillIn(t, origin, "", "alpha", "First")
+	gitCommitAll(t, origin, "one")
+	gitClone(t, origin, clone)
+	if result := BindLibrary(paths, clone); !result.OK() {
+		t.Fatal(result.Message)
+	}
+	alpha := filepath.Join(clone, "alpha")
+	if result := Install(paths, ReadSkill(alpha, clone, paths.SkillsHomes())); result.Status != Installed {
+		t.Fatalf("install = %#v", result)
+	}
+	installed := filepath.Join(paths.ClaudeHome, "skills", "alpha")
+	foreign := filepath.Join(paths.Home, "foreign", "alpha")
+	if err := os.Remove(installed); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(foreign, installed); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(filepath.Join(origin, "alpha"), filepath.Join(origin, "beta")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(origin, "beta", "SKILL.md"), []byte("---\nname: beta\ndescription: First\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitCommitAll(t, origin, "rename alpha to beta")
+	repositories, err := BoundRepositories(paths)
+	if err != nil || len(repositories) != 1 {
+		t.Fatalf("bindings = %#v, error = %v", repositories, err)
+	}
+
+	result := RefreshRepository(paths, repositories[0])
+	if result.Status != Pulled {
+		t.Fatalf("refresh = %#v", result)
+	}
+	assertLinkTarget(t, installed, foreign)
+	if _, err := os.Lstat(filepath.Join(paths.ClaudeHome, "skills", "beta")); !os.IsNotExist(err) {
+		t.Fatalf("an unproven link was renamed: %v", err)
+	}
+}
+
+func TestCLIIndexRefreshRetriesARenameAfterAnInstalledLinkClash(t *testing.T) {
+	paths := testPaths(t)
+	paths.Repo = ""
+	origin := filepath.Join(paths.Home, "origin")
+	clone := filepath.Join(paths.Home, "clone")
+	initGit(t, origin)
+	makeSkillIn(t, origin, "", "alpha", "First")
+	gitCommitAll(t, origin, "one")
+	gitClone(t, origin, clone)
+	alpha := filepath.Join(clone, "alpha")
+	if result := BindLibrary(paths, clone); !result.OK() {
+		t.Fatal(result.Message)
+	}
+	if result := Install(paths, ReadSkill(alpha, clone, paths.SkillsHomes())); result.Status != Installed {
+		t.Fatalf("install = %#v", result)
+	}
+	if err := os.Rename(filepath.Join(origin, "alpha"), filepath.Join(origin, "beta")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(origin, "beta", "SKILL.md"), []byte("---\nname: beta\ndescription: First\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitCommitAll(t, origin, "rename alpha to beta")
+	blocked := filepath.Join(paths.ClaudeHome, "skills", "beta")
+	if err := os.WriteFile(blocked, []byte("foreign"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	cli := &CLI{In: strings.NewReader(""), Out: &out, Err: &out, Paths: paths}
+	if code := cli.Run(context.Background(), []string{"index", "--refresh"}); code != 1 {
+		t.Fatalf("blocked refresh code = %d, want 1: %s", code, out.String())
+	}
+	repositories, err := BoundRepositories(paths)
+	if err != nil || !equalStrings(repositories[0].Skills, []string{"alpha"}) {
+		t.Fatalf("blocked bindings = %#v, error = %v", repositories, err)
+	}
+	if strings.Contains(out.String(), "renamed alpha") {
+		t.Fatalf("blocked refresh reported a rolled-back rename: %s", out.String())
+	}
+	if err := os.Remove(blocked); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if code := cli.Run(context.Background(), []string{"index", "--refresh"}); code != 0 {
+		t.Fatalf("retry code = %d: %s", code, out.String())
+	}
+	beta := filepath.Join(clone, "beta")
+	assertLinkTarget(t, filepath.Join(paths.Binding(), "beta"), beta)
+	assertLinkTarget(t, filepath.Join(paths.ClaudeHome, "skills", "beta"), beta)
+	if !strings.Contains(out.String(), "renamed alpha to beta") {
+		t.Fatalf("retry output = %s", out.String())
+	}
+}
+
+func TestCLIIndexRefreshFollowsARenamedRepositoryFolder(t *testing.T) {
+	paths := testPaths(t)
+	paths.Repo = ""
+	origin := filepath.Join(paths.Home, "origin")
+	clone := filepath.Join(paths.Home, "clone")
+	moved := filepath.Join(paths.Home, "renamed-clone")
+	initGit(t, origin)
+	makeSkillIn(t, origin, "", "alpha", "First")
+	gitCommitAll(t, origin, "one")
+	gitClone(t, origin, clone)
+	if result := BindLibrary(paths, clone); !result.OK() {
+		t.Fatal(result.Message)
+	}
+	if result := Install(paths, ReadSkill(filepath.Join(clone, "alpha"), clone, paths.SkillsHomes())); result.Status != Installed {
+		t.Fatalf("install = %#v", result)
+	}
+	if err := os.Rename(clone, moved); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	cli := &CLI{In: strings.NewReader(""), Out: &out, Err: &out, Paths: paths}
+	if code := cli.Run(context.Background(), []string{"index", "--refresh"}); code != 0 {
+		t.Fatalf("refresh code = %d: %s", code, out.String())
+	}
+	wanted := filepath.Join(moved, "alpha")
+	assertLinkTarget(t, filepath.Join(paths.Binding(), "alpha"), wanted)
+	assertLinkTarget(t, filepath.Join(paths.ClaudeHome, "skills", "alpha"), wanted)
+	repositories, err := BoundRepositories(paths)
+	if err != nil || len(repositories) != 1 || repositories[0].Path != moved {
+		t.Fatalf("bindings after move = %#v, error = %v", repositories, err)
+	}
+	if !strings.Contains(out.String(), "renamed-clone") || !strings.Contains(out.String(), "binding and catalog links from") {
+		t.Fatalf("move output = %s", out.String())
+	}
+}
+
+func TestIndexRefreshFindsAMovedRepositoryWithStaleSkillPaths(t *testing.T) {
+	paths := testPaths(t)
+	paths.Repo = ""
+	origin := filepath.Join(paths.Home, "origin")
+	clone := filepath.Join(paths.Home, "clone")
+	moved := filepath.Join(paths.Home, "moved")
+	initGit(t, origin)
+	makeSkillIn(t, origin, "", "alpha", "First")
+	gitCommitAll(t, origin, "one")
+	gitClone(t, origin, clone)
+	if result := BindLibrary(paths, clone); !result.OK() {
+		t.Fatal(result.Message)
+	}
+	alpha := filepath.Join(clone, "alpha")
+	if result := Install(paths, ReadSkill(alpha, clone, paths.SkillsHomes())); result.Status != Installed {
+		t.Fatalf("install = %#v", result)
+	}
+	if err := os.Rename(filepath.Join(origin, "alpha"), filepath.Join(origin, "beta")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(origin, "beta", "SKILL.md"), []byte("---\nname: beta\ndescription: First\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitCommitAll(t, origin, "rename alpha to beta")
+	if result := PullLatest(clone); result.Status != Pulled {
+		t.Fatalf("manual pull = %#v", result)
+	}
+	if err := os.Rename(clone, moved); err != nil {
+		t.Fatal(err)
+	}
+	repositories, err := BoundRepositories(paths)
+	if err != nil || len(repositories) != 1 || !equalStrings(repositories[0].Skills, []string{"alpha"}) {
+		t.Fatalf("stale binding = %#v, error = %v", repositories, err)
+	}
+
+	result := RefreshRepository(paths, repositories[0])
+	if result.Status != CurrentBranch {
+		t.Fatalf("refresh = %#v", result)
+	}
+	beta := filepath.Join(moved, "beta")
+	assertLinkTarget(t, filepath.Join(paths.Binding(), "beta"), beta)
+	assertLinkTarget(t, filepath.Join(paths.ClaudeHome, "skills", "beta"), beta)
+	repositories, err = BoundRepositories(paths)
+	if err != nil || len(repositories) != 1 || repositories[0].Path != moved || !equalStrings(repositories[0].Skills, []string{"beta"}) {
+		t.Fatalf("repaired binding = %#v, error = %v", repositories, err)
+	}
+}
+
+func TestMovedRepositoryRequiresRecordedRevisionEvidence(t *testing.T) {
+	paths := testPaths(t)
+	repository := filepath.Join(paths.Home, "repository")
+	initGit(t, repository)
+	makeSkillIn(t, repository, "", "alpha", "First")
+	gitCommitAll(t, repository, "one")
+	revision, err := gitOutput(repository, "rev-parse", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := BoundRepository{Path: filepath.Join(paths.Home, "old"), Identity: repositoryIdentity(repository), Revision: revision}
+	if !repositoryMatchesMoveEvidence(record, repository) {
+		t.Fatal("matching repository revision was rejected")
+	}
+	record.Revision = strings.Repeat("0", 40)
+	if repositoryMatchesMoveEvidence(record, repository) {
+		t.Fatal("repository without the recorded revision was accepted")
+	}
+}
+
+func TestIndexRefreshChecksIdentityWhenTheRecordedPathStillExists(t *testing.T) {
+	paths := testPaths(t)
+	paths.Repo = ""
+	origin := filepath.Join(paths.Home, "origin")
+	clone := filepath.Join(paths.Home, "clone")
+	moved := filepath.Join(paths.Home, "moved")
+	initGit(t, origin)
+	makeSkillIn(t, origin, "", "alpha", "First")
+	gitCommitAll(t, origin, "one")
+	gitClone(t, origin, clone)
+	if result := BindLibrary(paths, clone); !result.OK() {
+		t.Fatal(result.Message)
+	}
+	repositories, err := BoundRepositories(paths)
+	if err != nil || len(repositories) != 1 {
+		t.Fatalf("bindings = %#v, error = %v", repositories, err)
+	}
+	if err := os.Rename(clone, moved); err != nil {
+		t.Fatal(err)
+	}
+	initGit(t, clone)
+	makeSkillIn(t, clone, "", "foreign", "Other")
+	gitCommitAll(t, clone, "replacement")
+
+	result := RefreshRepository(paths, repositories[0])
+	if result.Status != CurrentBranch {
+		t.Fatalf("refresh = %#v", result)
+	}
+	repositories, err = BoundRepositories(paths)
+	if err != nil || len(repositories) != 1 || repositories[0].Path != moved {
+		t.Fatalf("identity-matched binding = %#v, error = %v", repositories, err)
+	}
+	if _, err := os.Stat(filepath.Join(clone, "foreign", "SKILL.md")); err != nil {
+		t.Fatalf("replacement repository was changed: %v", err)
+	}
+}
+
+func TestCLIIndexDoesNotReplaceAMissingRepositoryWithAnotherClone(t *testing.T) {
+	paths := testPaths(t)
+	paths.Repo = ""
+	origin := filepath.Join(paths.Home, "origin")
+	clone := filepath.Join(paths.Home, "clone")
+	other := filepath.Join(paths.Home, "other-clone")
+	initGit(t, origin)
+	makeSkillIn(t, origin, "", "alpha", "First")
+	gitCommitAll(t, origin, "one")
+	gitClone(t, origin, clone)
+	gitClone(t, origin, other)
+	if result := BindLibrary(paths, clone); !result.OK() {
+		t.Fatal(result.Message)
+	}
+	if err := os.RemoveAll(clone); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	cli := &CLI{In: strings.NewReader(""), Out: &out, Err: &out, Paths: paths}
+	if code := cli.Run(context.Background(), []string{"index", "--refresh"}); code != 1 {
+		t.Fatalf("refresh code = %d, want 1: %s", code, out.String())
+	}
+	repositories, err := BoundRepositories(paths)
+	if err != nil || len(repositories) != 1 || repositories[0].Path != clone {
+		t.Fatalf("missing binding was replaced = %#v, error = %v", repositories, err)
+	}
+	if !strings.Contains(out.String(), "folder is missing") {
+		t.Fatalf("missing repository output = %s", out.String())
 	}
 }
 

@@ -50,6 +50,15 @@ func NewTheme(output io.Writer) Theme {
 	return theme
 }
 
+func (c *CLI) theme(output io.Writer) Theme {
+	theme := NewTheme(output)
+	if c.Config.Boring {
+		theme.color = false
+		theme.icons = false
+	}
+	return theme
+}
+
 func (t Theme) Paint(text string, color Color) string {
 	if !t.color || text == "" {
 		return text

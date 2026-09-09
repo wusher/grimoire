@@ -17,6 +17,8 @@ const (
 	fireworkFrame = 50 * time.Millisecond
 	fireworkRise  = 0.5
 	fireworkBloom = 0.9
+	fireworkCols  = 120
+	fireworkRows  = 36
 )
 
 type fireworkCell struct {
@@ -64,7 +66,7 @@ func runFireworks(input, output *os.File, theme Theme, names []string) {
 	}
 	defer func() { _ = term.Restore(int(input.Fd()), old) }()
 	defer func() { _, _ = fmt.Fprint(output, "\x1b[2J\x1b[H\x1b[?25h") }()
-	_, _ = fmt.Fprint(output, "\x1b[?25l")
+	_, _ = fmt.Fprint(output, "\x1b[2J\x1b[H\x1b[?25l")
 
 	random := rand.New(rand.NewSource(time.Now().UnixNano())) //nolint:gosec
 	reader := bufio.NewReader(input)
@@ -75,7 +77,7 @@ func runFireworks(input, output *os.File, theme Theme, names []string) {
 			_, _ = readKey(reader, input)
 			break
 		}
-		size := terminalViewport(output)
+		size := fireworkViewport(terminalViewport(output))
 		age := time.Since(started).Seconds()
 		wanted := 0
 		if age <= fireworkSpan.Seconds()-fireworkRise {
@@ -95,6 +97,12 @@ func runFireworks(input, output *os.File, theme Theme, names []string) {
 		drawFireworkFrame(output, frame, theme)
 		time.Sleep(fireworkFrame)
 	}
+}
+
+func fireworkViewport(size viewport) viewport {
+	size.columns = min(size.columns, fireworkCols)
+	size.rows = min(size.rows, fireworkRows)
+	return size
 }
 
 func newShell(random *rand.Rand, age float64, columns, rows int, names []string) fireworkShell {

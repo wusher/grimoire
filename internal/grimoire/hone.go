@@ -1,10 +1,10 @@
 package grimoire
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 type Change struct {
@@ -15,73 +15,115 @@ type Change struct {
 }
 
 func Hone(paths Paths, dryRun bool) ([]Change, error) {
+	unlock, err := lockBindings(paths)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	if err := recoverBindingMutation(paths); err != nil {
+		return nil, err
+	}
 	catalog, err := LoadCatalog(paths)
 	if err != nil {
 		return nil, err
 	}
+	ownership, err := configuredOwnership(paths)
+	if err != nil {
+		return nil, err
+	}
+	before := ownership.clone()
+	plan := &symlinkPlan{}
+	var adopted []ownedLink
 	var changes []Change
-	for _, home := range paths.SkillsHomes() {
-		entries, err := os.ReadDir(home)
-		if os.IsNotExist(err) {
+
+	for _, skill := range catalog.Skills {
+		for _, home := range paths.KnownSkillsHomes() {
+			link := filepath.Join(home, skill.Name)
+			actual, linkErr := linkTarget(link)
+			if os.IsNotExist(linkErr) {
+				continue
+			}
+			if linkErr != nil {
+				return changes, fmt.Errorf("inspect installed link %s: %w", link, linkErr)
+			}
+			recorded, tracked := ownership.target(link)
+			if !samePath(actual, skill.Dir) || tracked && actual == filepath.Clean(recorded) {
+				continue
+			}
+			ownership.set(link, actual)
+			adopted = append(adopted, ownedLink{Path: link, Target: actual})
+			changes = append(changes, Change{Action: "adopted", Name: skill.Name, Message: "recorded existing valid link", Home: home})
+		}
+	}
+
+	for _, record := range append([]ownedLink(nil), ownership.Links...) {
+		if !knownSkillHome(paths, record.Path) {
 			continue
 		}
-		if err != nil {
-			return nil, fmt.Errorf("read %s: %w", home, err)
+		actual, linkErr := linkTarget(record.Path)
+		if linkErr != nil && !os.IsNotExist(linkErr) {
+			return changes, fmt.Errorf("inspect owned link %s: %w", record.Path, linkErr)
 		}
-		for _, entry := range entries {
-			link := filepath.Join(home, entry.Name())
-			raw, err := os.Readlink(link)
+		if os.IsNotExist(linkErr) || actual != filepath.Clean(record.Target) {
+			ownership.remove(record.Path)
+			changes = append(changes, Change{Action: "released", Name: filepath.Base(record.Path), Message: "link is missing or was replaced", Home: filepath.Dir(record.Path)})
+			continue
+		}
+		wanted, findErr := catalog.Find(filepath.Base(record.Path))
+		if findErr != nil {
+			changes = append(changes, Change{Action: "clash", Name: filepath.Base(record.Path), Message: "two skills use this name. Rename one", Home: filepath.Dir(record.Path)})
+			continue
+		}
+		if wanted != nil {
+			if samePath(actual, wanted.Dir) {
+				continue
+			}
+			snapshot, err := snapshotSymlink(record.Path)
 			if err != nil {
-				continue
+				return changes, fmt.Errorf("inspect owned link %s: %w", record.Path, err)
 			}
-			target := resolveLink(link, raw)
-			wanted, findErr := catalog.Find(entry.Name())
-			if findErr != nil {
-				changes = append(changes, Change{Action: "clash", Name: entry.Name(), Message: "two skills use this name. Rename one", Home: home})
-				continue
+			if err := plan.Replace(record.Path, snapshot, wanted.Dir, true); err != nil {
+				return changes, fmt.Errorf("plan owned link repair: %w", err)
 			}
-			if wanted != nil && samePath(target, wanted.Dir) {
-				continue
-			}
-			_, targetErr := os.Stat(target)
-			inside := catalog.Owns(target)
-			if targetErr == nil && !inside {
-				continue // a live link owned by someone else
-			}
-			if wanted != nil {
-				if !dryRun {
-					if err := replaceSymlink(link, wanted.Dir); err != nil {
-						return nil, err
-					}
-				}
-				changes = append(changes, Change{Action: "fixed", Name: entry.Name(), Message: "pointed at the bound skill", Home: home})
-				continue
-			}
-			if targetErr != nil || inside {
-				if !dryRun {
-					if err := os.Remove(link); err != nil {
-						return nil, err
-					}
-				}
-				message := "target folder is gone"
-				if targetErr != nil {
-					message = "broken link"
-				}
-				changes = append(changes, Change{Action: "removed", Name: entry.Name(), Message: message, Home: home})
-			}
+			ownership.set(record.Path, wanted.Dir)
+			changes = append(changes, Change{Action: "fixed", Name: wanted.Name, Message: "pointed at the bound skill", Home: filepath.Dir(record.Path)})
+			continue
 		}
+		if _, targetErr := os.Stat(actual); targetErr == nil {
+			continue
+		} else if !os.IsNotExist(targetErr) {
+			return changes, fmt.Errorf("inspect owned target %s: %w", actual, targetErr)
+		}
+		snapshot, err := snapshotSymlink(record.Path)
+		if err != nil {
+			return changes, fmt.Errorf("inspect owned link %s: %w", record.Path, err)
+		}
+		if err := plan.Remove(record.Path, snapshot); err != nil {
+			return changes, fmt.Errorf("plan stale owned link removal: %w", err)
+		}
+		ownership.remove(record.Path)
+		changes = append(changes, Change{Action: "removed", Name: filepath.Base(record.Path), Message: "owned target is gone", Home: filepath.Dir(record.Path)})
+	}
+	if dryRun {
+		return changes, nil
+	}
+	if err := plan.Apply(); err != nil {
+		return nil, err
+	}
+	for _, record := range adopted {
+		actual, err := linkTarget(record.Path)
+		if err != nil {
+			return nil, errors.Join(fmt.Errorf("verify adopted link %s: %w", record.Path, err), plan.Rollback())
+		}
+		if actual != record.Target {
+			return nil, errors.Join(fmt.Errorf("adopted link %s changed before ownership could be saved", record.Path), plan.Rollback())
+		}
+	}
+	if err := plan.Verify(); err != nil {
+		return nil, errors.Join(fmt.Errorf("verify honed links before saving ownership: %w", err), plan.Rollback())
+	}
+	if _, err := commitOwnershipUpdate(paths, before, ownership, plan.Rollback); err != nil {
+		return nil, err
 	}
 	return changes, nil
-}
-
-func pathInside(path, root string) bool {
-	rel, err := filepath.Rel(root, path)
-	return err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
-}
-
-func replaceSymlink(link, target string) error {
-	if err := os.Remove(link); err != nil {
-		return err
-	}
-	return os.Symlink(target, link)
 }

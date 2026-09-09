@@ -1,6 +1,7 @@
 package grimoire
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -21,80 +22,158 @@ type InstallResult struct {
 	Message string
 }
 
-func Install(skill Skill) InstallResult {
-	if len(skill.LinkPaths()) == 0 {
+func Install(paths Paths, skill Skill) InstallResult {
+	links := skill.LinkPaths()
+	if len(links) == 0 {
 		return InstallResult{Status: InstallBlocked, Skill: skill, Message: "no familiar chosen"}
 	}
-	if skill.Installed() {
-		return InstallResult{Status: AlreadyStatus, Skill: skill, Message: "already installed"}
+	unlock, err := lockBindings(paths)
+	if err != nil {
+		return InstallResult{Status: InstallBlocked, Skill: skill, Message: err.Error()}
 	}
-	for _, link := range skill.LinkPaths() {
-		if message := obstruction(skill, link); message != "" {
-			return InstallResult{Status: InstallBlocked, Skill: skill, Message: message}
+	defer unlock()
+	if err := recoverBindingMutation(paths); err != nil {
+		return InstallResult{Status: InstallBlocked, Skill: skill, Message: err.Error()}
+	}
+	ownership, err := configuredOwnership(paths)
+	if err != nil {
+		return InstallResult{Status: InstallBlocked, Skill: skill, Message: err.Error()}
+	}
+	before := ownership.clone()
+	plan := &symlinkPlan{}
+	adopted := 0
+	for _, link := range links {
+		info, err := os.Lstat(link)
+		if os.IsNotExist(err) {
+			if err := plan.Create(link, skill.Dir, true); err != nil {
+				return InstallResult{Status: InstallBlocked, Skill: skill, Message: fmt.Sprintf("cannot plan install: %v", err)}
+			}
+			continue
+		}
+		if err != nil {
+			return InstallResult{Status: InstallBlocked, Skill: skill, Message: fmt.Sprintf("cannot inspect destination: %v", err)}
+		}
+		if info.Mode()&os.ModeSymlink == 0 {
+			return InstallResult{Status: InstallBlocked, Skill: skill, Message: "a real folder already holds this name"}
+		}
+		actual, err := linkTarget(link)
+		if err != nil {
+			return InstallResult{Status: InstallBlocked, Skill: skill, Message: fmt.Sprintf("cannot inspect destination: %v", err)}
+		}
+		if !samePath(actual, skill.Dir) {
+			return InstallResult{Status: InstallBlocked, Skill: skill, Message: "a link that is not ours already holds this name"}
+		}
+		recorded, tracked := ownership.target(link)
+		if !tracked || actual != filepath.Clean(recorded) {
+			ownership.set(link, actual)
+			adopted++
 		}
 	}
-	for _, link := range skill.LinkPaths() {
+	for _, link := range links {
 		if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
 			return InstallResult{Status: InstallBlocked, Skill: skill, Message: err.Error()}
 		}
 	}
-	var created []string
-	for _, link := range skill.LinkPaths() {
-		if skill.InstalledAt(link) {
-			continue
-		}
-		if err := os.Symlink(skill.Dir, link); err != nil {
-			for _, made := range created {
-				_ = os.Remove(made)
+	if err := plan.Apply(); err != nil {
+		return InstallResult{Status: InstallBlocked, Skill: skill, Message: fmt.Sprintf("create installed links: %v", err)}
+	}
+	for _, link := range links {
+		actual, err := linkTarget(link)
+		if err != nil {
+			return InstallResult{
+				Status: InstallBlocked, Skill: skill,
+				Message: errors.Join(fmt.Errorf("verify installed link %s: %w", link, err), plan.Rollback()).Error(),
 			}
+		}
+		if !samePath(actual, skill.Dir) {
+			return InstallResult{
+				Status: InstallBlocked, Skill: skill,
+				Message: errors.Join(fmt.Errorf("installed link %s changed before ownership could be saved", link), plan.Rollback()).Error(),
+			}
+		}
+		ownership.set(link, actual)
+	}
+	if plan.Count() > 0 || adopted > 0 {
+		if _, err := commitOwnershipUpdate(paths, before, ownership, plan.Rollback); err != nil {
 			return InstallResult{Status: InstallBlocked, Skill: skill, Message: err.Error()}
 		}
-		created = append(created, link)
+	}
+	if plan.Count() == 0 {
+		message := "already installed"
+		if adopted > 0 {
+			message += "; ownership recorded"
+		}
+		return InstallResult{Status: AlreadyStatus, Skill: skill, Message: message}
 	}
 	return InstallResult{Status: Installed, Skill: skill, Message: "installed"}
 }
 
 const AlreadyStatus InstallStatus = "already"
 
-func Uninstall(skill Skill) InstallResult {
-	if len(skill.LinkPaths()) == 0 {
+func Uninstall(paths Paths, skill Skill) InstallResult {
+	links := skill.LinkPaths()
+	if len(links) == 0 {
 		return InstallResult{Status: InstallBlocked, Skill: skill, Message: "no familiar chosen"}
 	}
-	for _, link := range skill.LinkPaths() {
-		if message := obstruction(skill, link); message != "" {
-			return InstallResult{Status: InstallBlocked, Skill: skill, Message: message}
-		}
+	unlock, err := lockBindings(paths)
+	if err != nil {
+		return InstallResult{Status: InstallBlocked, Skill: skill, Message: err.Error()}
 	}
-	owned := false
-	for _, link := range skill.LinkPaths() {
-		if skill.InstalledAt(link) {
-			owned = true
-		}
+	defer unlock()
+	if err := recoverBindingMutation(paths); err != nil {
+		return InstallResult{Status: InstallBlocked, Skill: skill, Message: err.Error()}
 	}
-	if !owned {
-		return InstallResult{Status: Missing, Skill: skill, Message: "not installed"}
+	ownership, err := configuredOwnership(paths)
+	if err != nil {
+		return InstallResult{Status: InstallBlocked, Skill: skill, Message: err.Error()}
 	}
-	for _, link := range skill.LinkPaths() {
-		if skill.InstalledAt(link) {
-			if err := os.Remove(link); err != nil {
-				return InstallResult{Status: InstallBlocked, Skill: skill, Message: fmt.Sprintf("remove link: %v", err)}
+	before := ownership.clone()
+	plan := &symlinkPlan{}
+	released := 0
+	for _, link := range links {
+		recorded, tracked := ownership.target(link)
+		actual, readErr := linkTarget(link)
+		if os.IsNotExist(readErr) {
+			if tracked {
+				ownership.remove(link)
+				released++
 			}
+			continue
 		}
+		if readErr != nil {
+			return InstallResult{Status: InstallBlocked, Skill: skill, Message: fmt.Sprintf("cannot inspect installed link: %v", readErr)}
+		}
+		if !tracked {
+			return InstallResult{Status: InstallBlocked, Skill: skill, Message: "ownership is not recorded for this link; run grimoire hone first"}
+		}
+		if actual != filepath.Clean(recorded) {
+			ownership.remove(link)
+			released++
+			continue
+		}
+		snapshot, err := snapshotSymlink(link)
+		if err != nil {
+			return InstallResult{Status: InstallBlocked, Skill: skill, Message: fmt.Sprintf("cannot inspect installed link: %v", err)}
+		}
+		if err := plan.Remove(link, snapshot); err != nil {
+			return InstallResult{Status: InstallBlocked, Skill: skill, Message: fmt.Sprintf("cannot plan uninstall: %v", err)}
+		}
+		ownership.remove(link)
+	}
+	if err := plan.Apply(); err != nil {
+		return InstallResult{Status: InstallBlocked, Skill: skill, Message: fmt.Sprintf("remove installed links: %v", err)}
+	}
+	if plan.Count() > 0 || released > 0 {
+		if _, err := commitOwnershipUpdate(paths, before, ownership, plan.Rollback); err != nil {
+			return InstallResult{Status: InstallBlocked, Skill: skill, Message: err.Error()}
+		}
+	}
+	if plan.Count() == 0 {
+		message := "not installed"
+		if released > 0 {
+			message += "; stale ownership removed"
+		}
+		return InstallResult{Status: Missing, Skill: skill, Message: message}
 	}
 	return InstallResult{Status: Removed, Skill: skill, Message: "removed"}
-}
-
-func obstruction(skill Skill, link string) string {
-	if skill.InstalledAt(link) {
-		return ""
-	}
-	if _, err := os.Readlink(link); err == nil {
-		return "a link that is not ours already holds this name"
-	}
-	if _, err := os.Lstat(link); err == nil {
-		return "a real folder already holds this name"
-	} else if !os.IsNotExist(err) {
-		return fmt.Sprintf("cannot inspect destination: %v", err)
-	}
-	return ""
 }

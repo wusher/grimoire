@@ -54,7 +54,15 @@ func (p Paths) Binding() string { return filepath.Join(p.ConfigHome, "skills") }
 // Binding is the directory of per-skill symlinks managed from that manifest.
 func (p Paths) BindingsFile() string { return filepath.Join(p.ConfigHome, "bindings.json") }
 
+func (p Paths) BindingMutationFile() string {
+	return filepath.Join(p.ConfigHome, "binding-mutation.json")
+}
+
 func (p Paths) FamiliarFile() string { return filepath.Join(p.ConfigHome, "familiar.json") }
+
+func (p Paths) ConfigFile() string { return filepath.Join(p.ConfigHome, "config.json") }
+
+func (p Paths) OwnershipFile() string { return filepath.Join(p.ConfigHome, "ownership.json") }
 
 // Libraries returns every bound library, with the primary (write target)
 // first. A legacy installation with only the skills symlink is read without
@@ -145,15 +153,29 @@ func (p Paths) OutputDir() (string, error) {
 }
 
 func (p Paths) SkillsHomes() []string {
-	switch p.Familiar {
-	case "claude":
-		return []string{filepath.Join(p.ClaudeHome, "skills")}
-	case "opencode":
-		return []string{filepath.Join(p.OpenCodeHome, "skills")}
-	case "codex":
-		return []string{filepath.Join(p.CodexHome, "skills")}
+	for _, familiar := range familiarMetadata {
+		if familiar.name == p.Familiar {
+			return []string{familiar.skillsHome(p)}
+		}
 	}
 	return nil
+}
+
+func (p Paths) KnownSkillsHomes() []string {
+	seen := map[string]bool{}
+	found := make([]string, 0, len(familiarMetadata))
+	for _, familiar := range familiarMetadata {
+		root := familiar.home(p)
+		if root == "" {
+			continue
+		}
+		candidate := filepath.Clean(filepath.Join(root, "skills"))
+		if !seen[candidate] {
+			seen[candidate] = true
+			found = append(found, candidate)
+		}
+	}
+	return found
 }
 
 func absolute(path string) (string, error) {
