@@ -129,7 +129,7 @@ func (c *CLI) help(out io.Writer) {
 		{"  --replace-legacy-root", "Approves replacement of an old catalog-root link."},
 		{"index", "Lists bound repositories and offers to refresh them."},
 		{"  --refresh", "Refreshes now and repairs managed links."},
-		{"familiar [NAME]", "Chooses Claude, OpenCode, or Codex."},
+		{"familiar [NAME]", "Chooses Global, Claude, OpenCode, or Codex."},
 		{"config boring [true|false]", "Turns minimal, non-interactive output on or off."},
 		{"hone", "Repairs the links you already installed."},
 		{"  --dry-run", "Shows the report. Changes nothing."},
@@ -140,7 +140,7 @@ func (c *CLI) help(out io.Writer) {
 		"A bind finds every [skill-name]/SKILL.md below the Git root.",
 		"Full-screen views redraw after a terminal resize.",
 		"Pass names or paths to skip pickers in scripts.",
-		"The first interactive command asks you to choose a familiar.",
+		"Global uses ~/.agents/skills and is the default familiar.",
 		"NO_COLOR=1 turns color off. GRIMOIRE_ICONS=0 turns icons off.",
 	} {
 		for _, line := range wrapWords(note, max(1, page.Inner-4)) {
@@ -166,7 +166,7 @@ func (c *CLI) boringHelp(out io.Writer) {
 		"  unbind [SKILL...]           Unbind skills. Alias: unbond.",
 		"    --replace-legacy-root     Approve replacement of an old catalog-root link.",
 		"  index [--refresh]           List or refresh bound repositories.",
-		"  familiar [NAME]             Set the agent to claude, opencode, or codex.",
+		"  familiar [NAME]             Set global, claude, opencode, or codex.",
 		"  config boring [true|false]  Set minimal, non-interactive output.",
 		"  hone [--dry-run]            Repair installed links.",
 		"  help | -h | --help          Show this help.",

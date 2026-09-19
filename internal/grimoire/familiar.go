@@ -25,7 +25,15 @@ type familiarDefinition struct {
 	home  func(Paths) string
 }
 
+const defaultFamiliar = "global"
+
 var familiarMetadata = [...]familiarDefinition{
+	{name: "global", label: "Global", home: func(paths Paths) string {
+		if paths.Home == "" {
+			return ""
+		}
+		return filepath.Join(paths.Home, ".agents")
+	}},
 	{name: "claude", label: "Claude Code", home: func(paths Paths) string { return paths.ClaudeHome }},
 	{name: "opencode", label: "OpenCode", home: func(paths Paths) string { return paths.OpenCodeHome }},
 	{name: "codex", label: "Codex", home: func(paths Paths) string { return paths.CodexHome }},
@@ -54,13 +62,13 @@ func normalizeFamiliar(raw string) (string, error) {
 			return name, nil
 		}
 	}
-	return "", fmt.Errorf("unknown familiar %s; choose claude, opencode, or codex", raw)
+	return "", fmt.Errorf("unknown familiar %s; choose global, claude, opencode, or codex", raw)
 }
 
 func configuredFamiliar(paths Paths) (string, error) {
 	body, err := os.ReadFile(paths.FamiliarFile())
 	if os.IsNotExist(err) {
-		return "", nil
+		return defaultFamiliar, nil
 	}
 	if err != nil {
 		return "", fmt.Errorf("read familiar: %w", err)
@@ -90,7 +98,7 @@ func (c *CLI) configureFamiliar(args []string) (int, error) {
 		return 1, fmt.Errorf("familiar accepts one name")
 	}
 	if len(args) == 0 && c.Config.Boring {
-		return 1, fmt.Errorf("boring mode has no picker; pass one familiar name: claude, opencode, or codex")
+		return 1, fmt.Errorf("boring mode has no picker; pass one familiar name: global, claude, opencode, or codex")
 	}
 	current := c.Paths.Familiar
 	selected := ""
@@ -175,7 +183,7 @@ func (c *CLI) saveFamiliar(name string) error {
 }
 
 func noFamiliarError() error {
-	return fmt.Errorf("no familiar chosen; run grimoire familiar claude, opencode, or codex")
+	return fmt.Errorf("no familiar chosen; run grimoire familiar global, claude, opencode, or codex")
 }
 
 func (c *CLI) showFamiliar(name string) {
@@ -212,7 +220,7 @@ type FamiliarPicker struct {
 
 func (p FamiliarPicker) Pick(familiars []agentFamiliar, current string) (string, bool, error) {
 	if p.In == nil || p.Out == nil || !term.IsTerminal(int(p.In.Fd())) || !term.IsTerminal(int(p.Out.Fd())) {
-		return "", false, fmt.Errorf("this terminal cannot choose a familiar; pass claude, opencode, or codex")
+		return "", false, fmt.Errorf("this terminal cannot choose a familiar; pass global, claude, opencode, or codex")
 	}
 	if len(familiars) == 0 {
 		return "", false, fmt.Errorf("no familiars are available")

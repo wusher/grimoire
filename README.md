@@ -42,8 +42,7 @@ make install   # installs into GOBIN
 
 ```mermaid
 flowchart TD
-    A["go install github.com/wusher/grimoire@latest"] --> B["grimoire familiar<br/>choose claude, opencode, or codex"]
-    B --> C["cd into a Git repository<br/>that contains SKILL.md folders"]
+    A["go install github.com/wusher/grimoire@latest"] --> C["cd into a Git repository<br/>that contains SKILL.md folders"]
     C --> D["grimoire bind<br/>pick the skills to keep"]
     D --> E["grimoire toc<br/>review the catalog"]
     E --> F{next step}
@@ -61,7 +60,6 @@ flowchart TD
 Quick start:
 
 ```sh
-grimoire familiar claude     # one time; the first terminal command also asks
 cd ~/code/my-repo            # any Git repository with */SKILL.md folders
 grimoire bind                # fuzzy picker; or pass names to skip it
 grimoire toc                 # browse the catalog
@@ -144,7 +142,7 @@ $ grimoire --help
 ║      index                 Lists bound repositories and offers to refresh  │
 ║                            them.                                           │
 ║        --refresh           Refreshes now and repairs managed links.        │
-║      familiar [NAME]       Chooses Claude, OpenCode, or Codex.             │
+║      familiar [NAME]       Chooses Global, Claude, OpenCode, or Codex.     │
 ║      config boring [true|false]                                            │
 ║          Turns minimal, non-interactive output on or off.                  │
 ║      hone                  Repairs the links you already installed.        │
@@ -156,7 +154,7 @@ $ grimoire --help
 ║      A bind finds every [skill-name]/SKILL.md below the Git root.          │
 ║      Full-screen views redraw after a terminal resize.                     │
 ║      Pass names or paths to skip pickers in scripts.                       │
-║      The first interactive command asks you to choose a familiar.          │
+║      Global uses ~/.agents/skills and is the default familiar.             │
 ║      NO_COLOR=1 turns color off. GRIMOIRE_ICONS=0 turns icons off.         │
 ║                                                                            │
 ╙────────────────────── grimoire toc  ·  grimoire cast ──────────────────────┘
@@ -293,7 +291,9 @@ $ grimoire toc
 
 ### `grimoire familiar [NAME]`
 
-Chooses one agent: `claude`, `opencode`, or `codex`.
+Chooses a skill home: `global`, `claude`, `opencode`, or `codex`. The default is
+`global`, which installs into `~/.agents/skills`. OpenCode and Codex load this
+shared location. Claude Code needs the `claude` familiar.
 
 ```text
 $ grimoire familiar claude
@@ -432,12 +432,13 @@ description: Use when a particular job needs doing.
 Casting a skill creates one absolute symlink in the chosen familiar's home:
 
 ```text
+~/.agents/skills/some-skill        -> /path/to/repository/.../some-skill
 ~/.claude/skills/some-skill         -> /path/to/repository/.../some-skill
 ~/.config/opencode/skills/some-skill -> /path/to/repository/.../some-skill
 ~/.codex/skills/some-skill          -> /path/to/repository/.../some-skill
 ```
 
-- The familiar choice is stored in `~/.config/grimoire/familiar.json`.
+- A non-default familiar choice is stored in `~/.config/grimoire/familiar.json`.
   Changing it affects future commands only; old links stay in place.
 - Output options are stored in `~/.config/grimoire/config.json`.
 - Missing destination directories are created.

@@ -9,11 +9,13 @@ import (
 
 func TestFamiliarMetadataDrivesFamiliarBehavior(t *testing.T) {
 	paths := Paths{
+		Home:         "home",
 		ClaudeHome:   filepath.Join("homes", "claude"),
 		OpenCodeHome: filepath.Join("homes", "opencode"),
 		CodexHome:    filepath.Join("homes", "codex"),
 	}
 	want := []agentFamiliar{
+		{Name: "global", Label: "Global", Home: filepath.Join(paths.Home, ".agents", "skills")},
 		{Name: "claude", Label: "Claude Code", Home: filepath.Join(paths.ClaudeHome, "skills")},
 		{Name: "opencode", Label: "OpenCode", Home: filepath.Join(paths.OpenCodeHome, "skills")},
 		{Name: "codex", Label: "Codex", Home: filepath.Join(paths.CodexHome, "skills")},
@@ -35,7 +37,7 @@ func TestFamiliarMetadataDrivesFamiliarBehavior(t *testing.T) {
 		}
 	}
 
-	wantHomes := []string{want[0].Home, want[1].Home, want[2].Home}
+	wantHomes := []string{want[0].Home, want[1].Home, want[2].Home, want[3].Home}
 	if homes := paths.KnownSkillsHomes(); !reflect.DeepEqual(homes, wantHomes) {
 		t.Errorf("known homes = %#v, want %#v", homes, wantHomes)
 	}
@@ -46,5 +48,13 @@ func TestKnownSkillsHomesSkipsEmptyAndDuplicateHomes(t *testing.T) {
 	want := []string{filepath.Join("shared", "skills")}
 	if homes := paths.KnownSkillsHomes(); !reflect.DeepEqual(homes, want) {
 		t.Errorf("known homes = %#v, want %#v", homes, want)
+	}
+}
+
+func TestConfiguredFamiliarDefaultsToGlobal(t *testing.T) {
+	paths := Paths{ConfigHome: t.TempDir()}
+	name, err := configuredFamiliar(paths)
+	if err != nil || name != defaultFamiliar {
+		t.Fatalf("configured familiar = %q, %v; want %q", name, err, defaultFamiliar)
 	}
 }

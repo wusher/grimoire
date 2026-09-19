@@ -500,6 +500,7 @@ func TestSkillsHomeUsesOneFamiliar(t *testing.T) {
 		name string
 		home string
 	}{
+		{name: "global", home: filepath.Join(paths.Home, ".agents", "skills")},
 		{name: "claude", home: filepath.Join(paths.ClaudeHome, "skills")},
 		{name: "opencode", home: filepath.Join(paths.OpenCodeHome, "skills")},
 		{name: "codex", home: filepath.Join(paths.CodexHome, "skills")},
