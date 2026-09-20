@@ -1031,6 +1031,11 @@ func resolveLink(link, target string) string {
 }
 
 func samePath(left, right string) bool {
+	leftInfo, leftErr := os.Stat(left)
+	rightInfo, rightErr := os.Stat(right)
+	if leftErr == nil && rightErr == nil {
+		return os.SameFile(leftInfo, rightInfo)
+	}
 	a, errA := filepath.EvalSymlinks(left)
 	b, errB := filepath.EvalSymlinks(right)
 	if errA == nil && errB == nil {

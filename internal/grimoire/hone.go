@@ -47,7 +47,7 @@ func Hone(paths Paths, dryRun bool) ([]Change, error) {
 				return changes, fmt.Errorf("inspect installed link %s: %w", link, linkErr)
 			}
 			recorded, tracked := ownership.target(link)
-			if !samePath(actual, skill.Dir) || tracked && actual == filepath.Clean(recorded) {
+			if !samePath(actual, skill.Dir) || tracked && samePath(actual, recorded) {
 				continue
 			}
 			ownership.set(link, actual)
@@ -64,7 +64,7 @@ func Hone(paths Paths, dryRun bool) ([]Change, error) {
 		if linkErr != nil && !os.IsNotExist(linkErr) {
 			return changes, fmt.Errorf("inspect owned link %s: %w", record.Path, linkErr)
 		}
-		if os.IsNotExist(linkErr) || actual != filepath.Clean(record.Target) {
+		if os.IsNotExist(linkErr) || !samePath(actual, record.Target) {
 			ownership.remove(record.Path)
 			changes = append(changes, Change{Action: "released", Name: filepath.Base(record.Path), Message: "link is missing or was replaced", Home: filepath.Dir(record.Path)})
 			continue
@@ -115,7 +115,7 @@ func Hone(paths Paths, dryRun bool) ([]Change, error) {
 		if err != nil {
 			return nil, errors.Join(fmt.Errorf("verify adopted link %s: %w", record.Path, err), plan.Rollback())
 		}
-		if actual != record.Target {
+		if !samePath(actual, record.Target) {
 			return nil, errors.Join(fmt.Errorf("adopted link %s changed before ownership could be saved", record.Path), plan.Rollback())
 		}
 	}

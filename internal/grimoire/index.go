@@ -198,7 +198,7 @@ func findMovedRepository(repository BoundRepository) string {
 	var matches []string
 	for _, entry := range entries {
 		path := filepath.Join(parent, entry.Name())
-		if filepath.Clean(path) == filepath.Clean(repository.Path) {
+		if samePath(path, repository.Path) {
 			continue
 		}
 		info, statErr := os.Stat(path)
@@ -274,7 +274,7 @@ func adoptRepositoryLinks(paths Paths, repository BoundRepository) ([]RefreshCha
 	}
 	for _, record := range adopted {
 		actual, err := linkTarget(record.Path)
-		if err != nil || actual != record.Target {
+		if err != nil || !samePath(actual, record.Target) {
 			return nil, fmt.Errorf("installed link %s changed before ownership could be saved", record.Path)
 		}
 	}
@@ -323,7 +323,7 @@ func moveRepositoryBinding(paths Paths, repository BoundRepository, newPath stri
 	updated := append([]BoundRepository(nil), current...)
 	found := -1
 	for index := range current {
-		if filepath.Clean(current[index].Path) == filepath.Clean(repository.Path) {
+		if samePath(current[index].Path, repository.Path) {
 			if current[index].Identity != repository.Identity || current[index].Revision != repository.Revision {
 				return nil, 0, fmt.Errorf("repository binding identity changed")
 			}
@@ -602,7 +602,7 @@ func equalBindings(left, right []BoundRepository) bool {
 		return false
 	}
 	for index := range left {
-		if left[index].Path != right[index].Path || left[index].Identity != right[index].Identity || left[index].Revision != right[index].Revision || !equalStrings(left[index].Skills, right[index].Skills) {
+		if !samePath(left[index].Path, right[index].Path) || left[index].Identity != right[index].Identity || left[index].Revision != right[index].Revision || !equalStrings(left[index].Skills, right[index].Skills) {
 			return false
 		}
 	}

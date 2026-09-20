@@ -159,14 +159,14 @@ func ownershipProves(state ownershipState, path string) bool {
 		return false
 	}
 	actual, err := linkTarget(path)
-	return err == nil && actual == filepath.Clean(recorded)
+	return err == nil && samePath(actual, recorded)
 }
 
 func knownSkillHome(paths Paths, link string) bool {
 	parent := filepath.Clean(filepath.Dir(link))
 	for _, home := range paths.KnownSkillsHomes() {
 		absoluteHome, err := absolute(home)
-		if err == nil && parent == absoluteHome {
+		if err == nil && samePath(parent, absoluteHome) {
 			return true
 		}
 	}

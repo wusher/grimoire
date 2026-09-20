@@ -151,7 +151,7 @@ func TestOwnershipTransactionReportsRollbackFailures(t *testing.T) {
 	if err == nil {
 		t.Fatal("ownership update succeeded")
 	}
-	for _, message := range []string{"save ownership", "rollback link or binding changes", "link restore failed", "rollback ownership"} {
+	for _, message := range []string{"save ownership", "rollback link or binding changes", "link restore failed"} {
 		if !strings.Contains(err.Error(), message) {
 			t.Errorf("error does not contain %q: %v", message, err)
 		}

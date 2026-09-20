@@ -65,7 +65,7 @@ func Install(paths Paths, skill Skill) InstallResult {
 			return InstallResult{Status: InstallBlocked, Skill: skill, Message: "a link that is not ours already holds this name"}
 		}
 		recorded, tracked := ownership.target(link)
-		if !tracked || actual != filepath.Clean(recorded) {
+		if !tracked || !samePath(actual, recorded) {
 			ownership.set(link, actual)
 			adopted++
 		}
@@ -155,7 +155,7 @@ func Uninstall(paths Paths, skill Skill) InstallResult {
 		if !tracked {
 			return InstallResult{Status: InstallBlocked, Skill: skill, Message: "ownership is not recorded for this link; run grimoire hone first"}
 		}
-		if actual != filepath.Clean(recorded) {
+		if !samePath(actual, recorded) {
 			ownership.remove(link)
 			released++
 			continue

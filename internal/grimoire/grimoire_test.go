@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -23,6 +24,9 @@ func testPaths(t *testing.T) Paths {
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	t.Setenv("GIT_ATTR_NOSYSTEM", "1")
 	root := t.TempDir()
+	if canonical, err := filepath.EvalSymlinks(root); err == nil {
+		root = canonical
+	}
 	repo := filepath.Join(root, "library")
 	if err := os.MkdirAll(filepath.Join(repo, "skills"), 0o755); err != nil {
 		t.Fatal(err)
@@ -123,10 +127,10 @@ func TestBindRequiresGitAndDiscoversSkillsRecursively(t *testing.T) {
 		t.Fatal(err)
 	}
 	root, skills, err := DiscoverRepositorySkills(filepath.Join(repo, "deep", "inside"), paths.SkillsHomes())
-	if err != nil || root != repo || len(skills) != 3 {
+	if err != nil || !samePath(root, repo) || len(skills) != 3 {
 		t.Fatalf("discovery root = %s, skills = %#v, error = %v", root, skills, err)
 	}
-	if skills[0].Dir != beta || skills[1].Dir != gamma || skills[2].Dir != alpha || skills[2].Group != filepath.Join("tools", "review") {
+	if !samePath(skills[0].Dir, beta) || !samePath(skills[1].Dir, gamma) || !samePath(skills[2].Dir, alpha) || skills[2].Group != filepath.Join("tools", "review") {
 		t.Fatalf("discovered skills = %#v", skills)
 	}
 }
@@ -352,7 +356,7 @@ func TestApprovedBindMigratesLegacyWholeLibrarySymlink(t *testing.T) {
 	assertLinkTarget(t, filepath.Join(paths.Binding(), "alpha"), alpha)
 	assertLinkTarget(t, filepath.Join(paths.Binding(), "beta"), beta)
 	libraries, err := paths.Libraries()
-	if err != nil || len(libraries) != 2 || libraries[0] != legacy || libraries[1] != newRepo {
+	if err != nil || len(libraries) != 2 || !samePath(libraries[0], legacy) || !samePath(libraries[1], newRepo) {
 		t.Fatalf("repositories = %#v, error = %v", libraries, err)
 	}
 }
@@ -369,7 +373,7 @@ func TestApprovedUnbindMigratesALegacyDirectRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	bound, err := BoundSkills(paths)
-	if err != nil || len(bound) != 1 || bound[0].Dir != alpha {
+	if err != nil || len(bound) != 1 || !samePath(bound[0].Dir, alpha) {
 		t.Fatalf("legacy bound skills = %#v, error = %v", bound, err)
 	}
 	if result := UnbindSkillsWithOptions(paths, bound, BindingOptions{ReplaceLegacyCatalogRoot: true}); result.Status != Unbound {
@@ -404,7 +408,7 @@ func TestCatalogGroupsClashesAndTooDeep(t *testing.T) {
 	if len(catalog.TooDeep) != 1 || catalog.TooDeep[0] != filepath.Join("group", "deeper", "buried") {
 		t.Fatalf("too deep = %#v", catalog.TooDeep)
 	}
-	if _, err := catalog.Find("alpha"); err == nil || !strings.Contains(err.Error(), "one/alpha") {
+	if _, err := catalog.Find("alpha"); err == nil || !strings.Contains(err.Error(), filepath.Join("one", "alpha")) {
 		t.Fatalf("clashing find error = %v", err)
 	}
 }
@@ -434,7 +438,7 @@ func TestCatalogCombinesEveryBoundLibrary(t *testing.T) {
 	if len(catalog.Skills) != 2 || catalog.Skills[0].Name != "alpha" || catalog.Skills[1].Name != "beta" {
 		t.Fatalf("skills = %#v", catalog.Skills)
 	}
-	if len(catalog.Roots) != 2 || catalog.Root != filepath.Join(first, "skills") {
+	if len(catalog.Roots) != 2 || !samePath(catalog.Root, filepath.Join(first, "skills")) {
 		t.Fatalf("catalog roots = %#v, primary = %s", catalog.Roots, catalog.Root)
 	}
 	groups := orderedGroups(catalog.Skills)
@@ -768,7 +772,7 @@ func TestEffigyUsesTheSelectedSkillsRepository(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if archive != filepath.Join(second, "output", "beta.zip") {
+	if !samePath(archive, filepath.Join(second, "output", "beta.zip")) {
 		t.Fatalf("archive = %s", archive)
 	}
 }
@@ -1048,7 +1052,7 @@ func TestCLIBindUsesCurrentDirectory(t *testing.T) {
 		t.Fatalf("bind code = %d: %s", code, out.String())
 	}
 	assertLinkTarget(t, filepath.Join(paths.Binding(), "alpha"), alpha)
-	for _, want := range []string{"created catalog link", shortPath(filepath.Join(paths.Binding(), "alpha"), paths.Home), shortPath(alpha, paths.Home), "updated binding"} {
+	for _, want := range []string{"created catalog link", shortPath(filepath.Join(paths.Binding(), "alpha"), paths.Home), "nested", "alpha", "updated binding"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("bind output does not contain %q:\n%s", want, out.String())
 		}
@@ -1089,7 +1093,7 @@ func TestCLIUnbindAcceptsMultipleBoundSkillsFromAnyDirectory(t *testing.T) {
 		t.Fatalf("bind code = %d: %s", code, out.String())
 	}
 	libraries, err := paths.Libraries()
-	if err != nil || len(libraries) != 1 || libraries[0] != repo {
+	if err != nil || len(libraries) != 1 || !samePath(libraries[0], repo) {
 		t.Fatalf("libraries = %#v, error = %v", libraries, err)
 	}
 	outside := filepath.Join(paths.Home, "outside")
@@ -1379,10 +1383,10 @@ func TestVolleyAnimatesWhenEverySkillIsAlreadyInstalled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer inputRead.Close()
-	defer inputWrite.Close()
-	defer outputRead.Close()
-	defer outputWrite.Close()
+	defer func() { _ = inputRead.Close() }()
+	defer func() { _ = inputWrite.Close() }()
+	defer func() { _ = outputRead.Close() }()
+	defer func() { _ = outputWrite.Close() }()
 
 	called := 0
 	previous := playFireworks
@@ -1650,6 +1654,9 @@ func TestIndexRefreshPullsOnlyCleanRepositories(t *testing.T) {
 }
 
 func TestPullLatestRechecksTheWorktreeAfterFetch(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Git fetch hooks require a POSIX shell")
+	}
 	paths := testPaths(t)
 	origin := filepath.Join(paths.Home, "origin")
 	clone := filepath.Join(paths.Home, "clone")
@@ -1675,6 +1682,9 @@ func TestPullLatestRechecksTheWorktreeAfterFetch(t *testing.T) {
 }
 
 func TestPullLatestRechecksHEADAfterFetch(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Git fetch hooks require a POSIX shell")
+	}
 	paths := testPaths(t)
 	origin := filepath.Join(paths.Home, "origin")
 	clone := filepath.Join(paths.Home, "clone")
@@ -2070,7 +2080,7 @@ func TestCLIIndexRefreshFollowsARenamedRepositoryFolder(t *testing.T) {
 	assertLinkTarget(t, filepath.Join(paths.Binding(), "alpha"), wanted)
 	assertLinkTarget(t, filepath.Join(paths.ClaudeHome, "skills", "alpha"), wanted)
 	repositories, err := BoundRepositories(paths)
-	if err != nil || len(repositories) != 1 || repositories[0].Path != moved {
+	if err != nil || len(repositories) != 1 || !samePath(repositories[0].Path, moved) {
 		t.Fatalf("bindings after move = %#v, error = %v", repositories, err)
 	}
 	if !strings.Contains(out.String(), "renamed-clone") || !strings.Contains(out.String(), "binding and catalog links from") {
@@ -2121,7 +2131,7 @@ func TestIndexRefreshFindsAMovedRepositoryWithStaleSkillPaths(t *testing.T) {
 	assertLinkTarget(t, filepath.Join(paths.Binding(), "beta"), beta)
 	assertLinkTarget(t, filepath.Join(paths.ClaudeHome, "skills", "beta"), beta)
 	repositories, err = BoundRepositories(paths)
-	if err != nil || len(repositories) != 1 || repositories[0].Path != moved || !equalStrings(repositories[0].Skills, []string{"beta"}) {
+	if err != nil || len(repositories) != 1 || !samePath(repositories[0].Path, moved) || !equalStrings(repositories[0].Skills, []string{"beta"}) {
 		t.Fatalf("repaired binding = %#v, error = %v", repositories, err)
 	}
 }
@@ -2175,7 +2185,7 @@ func TestIndexRefreshChecksIdentityWhenTheRecordedPathStillExists(t *testing.T) 
 		t.Fatalf("refresh = %#v", result)
 	}
 	repositories, err = BoundRepositories(paths)
-	if err != nil || len(repositories) != 1 || repositories[0].Path != moved {
+	if err != nil || len(repositories) != 1 || !samePath(repositories[0].Path, moved) {
 		t.Fatalf("identity-matched binding = %#v, error = %v", repositories, err)
 	}
 	if _, err := os.Stat(filepath.Join(clone, "foreign", "SKILL.md")); err != nil {
@@ -2207,7 +2217,7 @@ func TestCLIIndexDoesNotReplaceAMissingRepositoryWithAnotherClone(t *testing.T) 
 		t.Fatalf("refresh code = %d, want 1: %s", code, out.String())
 	}
 	repositories, err := BoundRepositories(paths)
-	if err != nil || len(repositories) != 1 || repositories[0].Path != clone {
+	if err != nil || len(repositories) != 1 || samePath(repositories[0].Path, other) || filepath.Base(repositories[0].Path) != filepath.Base(clone) {
 		t.Fatalf("missing binding was replaced = %#v, error = %v", repositories, err)
 	}
 	if !strings.Contains(out.String(), "folder is missing") {

@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 type portabilityState struct {
@@ -129,7 +130,15 @@ func TestPlatformRawPath(t *testing.T) {
 
 func readPortableState(t *testing.T, path string) portabilityState {
 	t.Helper()
-	body, err := os.ReadFile(path)
+	var body []byte
+	var err error
+	for attempt := 0; attempt < 100; attempt++ {
+		body, err = os.ReadFile(path)
+		if err == nil || runtime.GOOS != "windows" {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}

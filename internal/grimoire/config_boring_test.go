@@ -3,6 +3,7 @@ package grimoire
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -117,19 +118,21 @@ func TestBoringModeUsesPlainOutputAndRequiresExplicitNames(t *testing.T) {
 	if code, body := run("cast"); code != 1 || !strings.Contains(body, "grimoire cast SKILL") {
 		t.Fatalf("boring cast guidance = %d: %s", code, body)
 	}
-	if code, body := run("cast", "alpha"); code != 0 || body != "alpha installed\ncreated link ~/claude/skills/alpha -> ~/library/skills/alpha\n" {
+	castOutput := fmt.Sprintf("alpha installed\ncreated link %s -> %s\n", filepath.Join("~", "claude", "skills", "alpha"), filepath.Join("~", "library", "skills", "alpha"))
+	if code, body := run("cast", "alpha"); code != 0 || body != castOutput {
 		t.Fatalf("boring cast = %d: %q", code, body)
 	}
 	if code, body := run("banish"); code != 1 || !strings.Contains(body, "grimoire banish SKILL") {
 		t.Fatalf("boring banish guidance = %d: %s", code, body)
 	}
-	if code, body := run("banish", "alpha"); code != 0 || body != "alpha removed\nremoved link ~/claude/skills/alpha -> ~/library/skills/alpha\n" {
+	banishOutput := fmt.Sprintf("alpha removed\nremoved link %s -> %s\n", filepath.Join("~", "claude", "skills", "alpha"), filepath.Join("~", "library", "skills", "alpha"))
+	if code, body := run("banish", "alpha"); code != 0 || body != banishOutput {
 		t.Fatalf("boring banish = %d: %q", code, body)
 	}
 	if code, body := run("effigy"); code != 1 || !strings.Contains(body, "grimoire effigy SKILL") {
 		t.Fatalf("boring effigy guidance = %d: %s", code, body)
 	}
-	if code, body := run("volley"); code != 0 || body != "alpha installed\ncreated link ~/claude/skills/alpha -> ~/library/skills/alpha\ninstalled=1 skipped=0 failed=0\n" {
+	if code, body := run("volley"); code != 0 || body != castOutput+"installed=1 skipped=0 failed=0\n" {
 		t.Fatalf("boring volley = %d: %q", code, body)
 	}
 	if code, body := run("hone"); code != 0 || body != "nothing to repair\n" {
@@ -176,7 +179,8 @@ func TestRichVolleyRetainsDetailedAndAggregateOutput(t *testing.T) {
 	if code := cli.Run(context.Background(), []string{"volley"}); code != 0 {
 		t.Fatalf("rich volley = %d: %s", code, out.String())
 	}
-	if got, want := out.String(), "alpha installed\ncreated link ~/claude/skills/alpha -> ~/library/skills/alpha\n1 already installed\ninstalled 1, skipped 1, failed 0\n"; got != want {
+	want := fmt.Sprintf("alpha installed\ncreated link %s -> %s\n1 already installed\ninstalled 1, skipped 1, failed 0\n", filepath.Join("~", "claude", "skills", "alpha"), filepath.Join("~", "library", "skills", "alpha"))
+	if got := out.String(); got != want {
 		t.Fatalf("rich volley output = %q, want %q", got, want)
 	}
 }
@@ -202,7 +206,7 @@ func TestBoringVolleyRetainsPlainDetailsAndSkippedCount(t *testing.T) {
 	if code := cli.Run(context.Background(), []string{"volley"}); code != 0 {
 		t.Fatalf("boring volley = %d: %s", code, out.String())
 	}
-	want := "alpha installed\ncreated link ~/claude/skills/alpha -> ~/library/skills/alpha\n1 already installed\ninstalled=1 skipped=1 failed=0\n"
+	want := fmt.Sprintf("alpha installed\ncreated link %s -> %s\n1 already installed\ninstalled=1 skipped=1 failed=0\n", filepath.Join("~", "claude", "skills", "alpha"), filepath.Join("~", "library", "skills", "alpha"))
 	if got := out.String(); got != want {
 		t.Fatalf("boring volley output = %q, want %q", got, want)
 	}
