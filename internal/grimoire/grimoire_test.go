@@ -6,9 +6,12 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -1045,6 +1048,11 @@ func TestCLIBindUsesCurrentDirectory(t *testing.T) {
 		t.Fatalf("bind code = %d: %s", code, out.String())
 	}
 	assertLinkTarget(t, filepath.Join(paths.Binding(), "alpha"), alpha)
+	for _, want := range []string{"created catalog link", shortPath(filepath.Join(paths.Binding(), "alpha"), paths.Home), shortPath(alpha, paths.Home), "updated binding"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("bind output does not contain %q:\n%s", want, out.String())
+		}
+	}
 }
 
 func TestCLIBindAcceptsRepositorySkillPaths(t *testing.T) {
@@ -1096,6 +1104,9 @@ func TestCLIUnbindAcceptsMultipleBoundSkillsFromAnyDirectory(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), spaced("unbind")) || !strings.Contains(out.String(), "alpha") || !strings.Contains(out.String(), "beta") {
 		t.Fatalf("unbind output = %s", out.String())
+	}
+	if strings.Count(out.String(), "removed catalog link") != 2 || !strings.Contains(out.String(), "updated binding") {
+		t.Fatalf("unbind output does not list its changes: %s", out.String())
 	}
 	if bound, err := BoundSkills(paths); err != nil || len(bound) != 0 {
 		t.Fatalf("bound skills after unbind = %#v, error = %v", bound, err)
@@ -1175,7 +1186,7 @@ func TestPageBindingKeepsEveryLineTheSameWidth(t *testing.T) {
 }
 
 func TestPageUsesSmallReportedWidths(t *testing.T) {
-	for _, columns := range []int{7, 18, 39} {
+	for _, columns := range []int{1, 3, 6, 7, 18, 39} {
 		page := NewPage(Theme{columns: columns})
 		if page.Width != columns {
 			t.Errorf("page width = %d, want reported width %d", page.Width, columns)
@@ -1187,6 +1198,67 @@ func TestPageUsesSmallReportedWidths(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestPageUsesWideReportedWidth(t *testing.T) {
+	page := NewPage(Theme{columns: 160})
+	if page.Width != 160 {
+		t.Fatalf("page width = %d, want 160", page.Width)
+	}
+	for index, line := range page.Bind([]string{"content"}, "index", "repositories", "folio") {
+		if width := visibleWidth(line); width != 160 {
+			t.Errorf("line %d width = %d, want 160", index, width)
+		}
+	}
+}
+
+func TestTerminalWidthUsesDisplayCells(t *testing.T) {
+	if got := visibleWidth("a界e\u0301"); got != 4 {
+		t.Fatalf("display width = %d, want 4", got)
+	}
+	for _, line := range wrapWords("short abcdefghijklmnop 界界界界", 5) {
+		if width := visibleWidth(line); width > 5 {
+			t.Errorf("wrapped line width = %d: %q", width, line)
+		}
+	}
+}
+
+func TestCommandsFitReportedTerminalWidth(t *testing.T) {
+	const columns = 24
+	t.Setenv("COLUMNS", strconv.Itoa(columns))
+	paths := testPaths(t)
+	initGit(t, paths.Repo)
+	makeSkill(t, paths, "", "alpha", "A description with enough words to wrap on a narrow terminal")
+	t.Chdir(paths.Repo)
+
+	var out bytes.Buffer
+	cli := &CLI{In: strings.NewReader(""), Out: &out, Err: &out, Paths: paths}
+	run := func(args ...string) {
+		t.Helper()
+		out.Reset()
+		if code := cli.Run(context.Background(), args); code != 0 {
+			t.Fatalf("%v code = %d: %s", args, code, out.String())
+		}
+		for index, line := range strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n") {
+			if width := visibleWidth(line); width > columns {
+				t.Errorf("%v line %d width = %d, maximum %d: %q", args, index, width, columns, line)
+			}
+		}
+	}
+
+	run("help")
+	run("toc")
+	run("cast", "alpha")
+	run("hone")
+	run("effigy", "alpha")
+	run("banish", "alpha")
+	run("volley")
+	run("familiar", "global")
+	run("config", "boring", "false")
+	cli.Paths.Repo = ""
+	run("bind", "alpha")
+	run("index")
+	run("unbind", "alpha")
 }
 
 func TestPageClipsLongPaintedContentToItsWidth(t *testing.T) {
@@ -1252,13 +1324,81 @@ func TestAnimationFramesFollowTheCurrentViewport(t *testing.T) {
 }
 
 func TestFireworksCapTheDrawingAreaOnLargeDisplays(t *testing.T) {
-	large := fireworkViewport(viewport{columns: 400, rows: 120})
+	large := fireworkViewport(viewport{columns: 800, rows: 240})
 	if large.columns != fireworkCols || large.rows != fireworkRows {
 		t.Fatalf("large firework viewport = %#v", large)
+	}
+	medium := viewport{columns: 180, rows: 50}
+	if got := fireworkViewport(medium); got != medium {
+		t.Fatalf("medium firework viewport = %#v, want %#v", got, medium)
 	}
 	small := viewport{columns: 80, rows: 24}
 	if got := fireworkViewport(small); got != small {
 		t.Fatalf("small firework viewport = %#v, want %#v", got, small)
+	}
+}
+
+func TestFireworkFrameCentersInsideTheTerminal(t *testing.T) {
+	read, write, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	grid := [][]fireworkCell{
+		make([]fireworkCell, 4),
+		make([]fireworkCell, 4),
+	}
+	grid[0][0] = fireworkCell{mark: "*", color: Amber}
+	drawFireworkFrame(write, grid, Theme{}, viewport{columns: 10, rows: 6})
+	if err := write.Close(); err != nil {
+		t.Fatal(err)
+	}
+	body, err := io.ReadAll(read)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := read.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "\x1b[3;1H   *") {
+		t.Fatalf("firework frame is not centered: %q", body)
+	}
+}
+
+func TestVolleyAnimatesWhenEverySkillIsAlreadyInstalled(t *testing.T) {
+	paths := testPaths(t)
+	dir := makeSkill(t, paths, "", "alpha", "First")
+	skill := ReadSkill(dir, filepath.Join(paths.Repo, "skills"), paths.SkillsHomes())
+	if result := Install(paths, skill); result.Status != Installed {
+		t.Fatalf("install = %#v", result)
+	}
+	inputRead, inputWrite, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	outputRead, outputWrite, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer inputRead.Close()
+	defer inputWrite.Close()
+	defer outputRead.Close()
+	defer outputWrite.Close()
+
+	called := 0
+	previous := playFireworks
+	playFireworks = func(_ *os.File, _ *os.File, _ Theme, names []string) {
+		called++
+		if !reflect.DeepEqual(names, []string{"alpha"}) {
+			t.Errorf("animation names = %#v", names)
+		}
+	}
+	defer func() { playFireworks = previous }()
+	cli := &CLI{In: inputRead, Out: outputWrite, Err: outputWrite, Paths: paths}
+	if code, err := cli.volley(nil); err != nil || code != 0 {
+		t.Fatalf("volley = %d, %v", code, err)
+	}
+	if called != 1 {
+		t.Fatalf("fireworks called %d times, want 1", called)
 	}
 }
 
@@ -1297,6 +1437,25 @@ func TestHelpAndSpellResultsCarryOriginalVisualLanguage(t *testing.T) {
 	if !strings.Contains(out.String(), wandSigil[0]) || !strings.Contains(out.String(), "1 installed") {
 		t.Fatalf("cast output:\n%s", out.String())
 	}
+}
+
+func TestWideHelpUsesACenteredReadingColumn(t *testing.T) {
+	t.Setenv("COLUMNS", "140")
+	paths := testPaths(t)
+	var out bytes.Buffer
+	cli := &CLI{Out: &out, Err: &out, Paths: paths}
+	if code := cli.Run(context.Background(), []string{"help"}); code != 0 {
+		t.Fatal(code)
+	}
+	for _, line := range strings.Split(out.String(), "\n") {
+		if strings.Contains(line, "H O W   T O   S A Y   I T") {
+			if at := strings.Index(line, "H"); at < 20 {
+				t.Fatalf("help reading column starts at %d: %q", at, line)
+			}
+			return
+		}
+	}
+	t.Fatalf("wide help section not found:\n%s", out.String())
 }
 
 func TestMatchScorePrefersTightEarlyMatches(t *testing.T) {
@@ -1590,6 +1749,17 @@ func TestCLIIndexReportsAndRefreshesBoundRepositories(t *testing.T) {
 	if result := BindLibrary(paths, clone); !result.OK() {
 		t.Fatal(result.Message)
 	}
+	alpha := ReadSkill(filepath.Join(clone, "alpha"), clone, paths.SkillsHomes())
+	if result := Install(paths, alpha); result.Status != Installed {
+		t.Fatalf("install in Claude home = %#v", result)
+	}
+	openCodeHome := filepath.Join(paths.OpenCodeHome, "skills")
+	if err := os.MkdirAll(openCodeHome, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(alpha.Dir, filepath.Join(openCodeHome, alpha.Name)); err != nil {
+		t.Fatal(err)
+	}
 
 	var out bytes.Buffer
 	cli := &CLI{In: strings.NewReader(""), Out: &out, Err: &out, Paths: paths}
@@ -1598,6 +1768,11 @@ func TestCLIIndexReportsAndRefreshesBoundRepositories(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "clone") || !strings.Contains(out.String(), "1 skill bound") || !strings.Contains(out.String(), "1 repositories") {
 		t.Fatalf("index output = %s", out.String())
+	}
+	for _, want := range []string{"Global", "Claude Code", "OpenCode", "Codex", shortPath(filepath.Join(paths.ClaudeHome, "skills"), paths.Home), shortPath(openCodeHome, paths.Home), "alpha", "0 of 1 bound skill installed", "1 of 1 bound skill installed"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("index output does not contain %q:\n%s", want, out.String())
+		}
 	}
 	out.Reset()
 	if code := cli.Run(context.Background(), []string{"index", "--bogus"}); code != 1 {
@@ -1609,6 +1784,68 @@ func TestCLIIndexReportsAndRefreshesBoundRepositories(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "already up to date") {
 		t.Fatalf("refresh output = %s", out.String())
+	}
+}
+
+func TestIndexUsesReportedWidthAndShowsUninstalledBoundCount(t *testing.T) {
+	const columns = 120
+	t.Setenv("COLUMNS", strconv.Itoa(columns))
+	paths := testPaths(t)
+	makeSkill(t, paths, "", "alpha", "First")
+	var out bytes.Buffer
+	cli := &CLI{Out: &out, Err: &out, Paths: paths}
+	cli.showIndex([]BoundRepository{{Path: paths.Repo, Skills: []string{filepath.Join("skills", "alpha")}}})
+
+	if !strings.Contains(out.String(), "0 of 1 bound skill installed") {
+		t.Fatalf("index lost the bound count for empty familiar homes:\n%s", out.String())
+	}
+	for index, line := range strings.Split(strings.TrimSpace(out.String()), "\n") {
+		if width := visibleWidth(line); width != columns {
+			t.Errorf("index line %d width = %d, want %d: %q", index, width, columns, line)
+		}
+	}
+}
+
+func TestIndexFamiliarsIgnoresForeignEntries(t *testing.T) {
+	paths := testPaths(t)
+	target := makeSkill(t, paths, "", "alpha", "First")
+	repositories := []BoundRepository{{Path: paths.Repo, Skills: []string{filepath.Join("skills", "alpha")}}}
+
+	claudeLink := filepath.Join(paths.ClaudeHome, "skills", "alpha")
+	if err := os.MkdirAll(claudeLink, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	openCodeHome := filepath.Join(paths.OpenCodeHome, "skills")
+	if err := os.MkdirAll(openCodeHome, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(openCodeHome, "alpha")); err != nil {
+		t.Fatal(err)
+	}
+	globalHome := filepath.Join(paths.Home, ".agents", "skills")
+	if err := os.MkdirAll(globalHome, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(paths.Home, filepath.Join(globalHome, "alpha")); err != nil {
+		t.Fatal(err)
+	}
+
+	indexed := indexFamiliars(paths, repositories)
+	for _, familiar := range indexed {
+		if familiar.Bound != 1 {
+			t.Errorf("%s bound count = %d, want 1", familiar.Name, familiar.Bound)
+		}
+		if familiar.Name == "opencode" {
+			if len(familiar.Skills) != 1 || familiar.Skills[0].Target != target || familiar.Blocked != 0 {
+				t.Fatalf("OpenCode skills = %#v", familiar.Skills)
+			}
+		} else if len(familiar.Skills) != 0 {
+			t.Errorf("foreign entry listed for %s: %#v", familiar.Name, familiar.Skills)
+		} else if familiar.Name == "codex" && familiar.Blocked != 0 {
+			t.Errorf("missing Codex link is blocked: %#v", familiar)
+		} else if familiar.Name != "codex" && familiar.Blocked != 1 {
+			t.Errorf("%s blocked count = %d, want 1", familiar.Name, familiar.Blocked)
+		}
 	}
 }
 

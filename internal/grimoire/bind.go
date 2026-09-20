@@ -27,6 +27,7 @@ type BindResult struct {
 	Path    string
 	Target  string
 	Message string
+	Changes []PathChange
 }
 
 // BindingOptions controls changes that need explicit caller approval.
@@ -158,7 +159,9 @@ func bindSkills(paths Paths, repository string, chosen []Skill, options BindingO
 		Path: root, Skills: selected, Identity: repositoryIdentity(root), Revision: repositoryRevision(root),
 	}
 	metadataOnly := false
+	previous := []string{}
 	if found >= 0 {
+		previous = append(previous, updated[found].Skills...)
 		if equalStrings(updated[found].Skills, selected) {
 			if updated[found].Identity == entry.Identity && updated[found].Revision == entry.Revision {
 				return BindResult{Status: Already, Path: paths.Binding(), Target: root, Message: fmt.Sprintf("%d skill%s already bound", len(selected), plural(len(selected)))}
@@ -180,7 +183,30 @@ func bindSkills(paths Paths, repository string, chosen []Skill, options BindingO
 	} else if status == Rebound {
 		word = "selection updated"
 	}
-	return BindResult{Status: status, Path: paths.Binding(), Target: root, Message: fmt.Sprintf("%d skill%s %s", len(selected), plural(len(selected)), word)}
+	changes := bindingSelectionChanges(paths, root, previous, selected)
+	changes = append(changes, PathChange{Action: "updated binding", Path: paths.BindingsFile()})
+	return BindResult{Status: status, Path: paths.Binding(), Target: root, Message: fmt.Sprintf("%d skill%s %s", len(selected), plural(len(selected)), word), Changes: changes}
+}
+
+func bindingSelectionChanges(paths Paths, root string, before, after []string) []PathChange {
+	old := map[string]bool{}
+	for _, rel := range before {
+		old[rel] = true
+	}
+	wanted := map[string]bool{}
+	changes := []PathChange{}
+	for _, rel := range after {
+		wanted[rel] = true
+		if !old[rel] {
+			changes = append(changes, PathChange{Action: "created catalog link", Path: filepath.Join(paths.Binding(), filepath.Base(rel)), Target: filepath.Join(root, rel)})
+		}
+	}
+	for _, rel := range before {
+		if !wanted[rel] {
+			changes = append(changes, PathChange{Action: "removed catalog link", Path: filepath.Join(paths.Binding(), filepath.Base(rel)), Target: filepath.Join(root, rel)})
+		}
+	}
+	return changes
 }
 
 func selectedPaths(root string, chosen []Skill) ([]string, error) {
@@ -252,7 +278,9 @@ func UnbindLibraryWithOptions(paths Paths, cwd string, options BindingOptions) B
 	if err := updateBindings(paths, current, updated, legacyRoot, options.ReplaceLegacyCatalogRoot); err != nil {
 		return bindFailure(paths.Binding(), root, err.Error())
 	}
-	return BindResult{Status: Unbound, Path: paths.Binding(), Target: root, Message: "unbound"}
+	changes := bindingSelectionChanges(paths, root, current[index].Skills, nil)
+	changes = append(changes, PathChange{Action: "updated binding", Path: paths.BindingsFile()})
+	return BindResult{Status: Unbound, Path: paths.Binding(), Target: root, Message: "unbound", Changes: changes}
 }
 
 // BoundSkills returns the manifest selection without requiring source files to
@@ -335,7 +363,13 @@ func UnbindSkillsWithOptions(paths Paths, chosen []Skill, options BindingOptions
 	if err := updateBindings(paths, current, updated, legacyRoot, options.ReplaceLegacyCatalogRoot); err != nil {
 		return bindFailure(paths.Binding(), "", err.Error())
 	}
-	return BindResult{Status: Unbound, Path: paths.Binding(), Message: fmt.Sprintf("%d skill%s unbound", removed, plural(removed))}
+	changes := []PathChange{}
+	for dir := range wanted {
+		changes = append(changes, PathChange{Action: "removed catalog link", Path: filepath.Join(paths.Binding(), filepath.Base(dir)), Target: dir})
+	}
+	sort.Slice(changes, func(i, j int) bool { return changes[i].Path < changes[j].Path })
+	changes = append(changes, PathChange{Action: "updated binding", Path: paths.BindingsFile()})
+	return BindResult{Status: Unbound, Path: paths.Binding(), Message: fmt.Sprintf("%d skill%s unbound", removed, plural(removed)), Changes: changes}
 }
 
 func configuredBindings(paths Paths) ([]BoundRepository, error) {

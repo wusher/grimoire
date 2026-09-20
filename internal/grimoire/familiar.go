@@ -141,6 +141,7 @@ func (c *CLI) configureFamiliar(args []string) (int, error) {
 		return 1, err
 	}
 	c.showFamiliar(selected)
+	c.writePathChange(c.Out, PathChange{Action: "updated familiar", Path: c.Paths.FamiliarFile()})
 	if current != "" && current != selected {
 		c.note("existing links remain with " + familiarLabel(c.Paths, current))
 	}
@@ -170,6 +171,7 @@ func (c *CLI) ensureFamiliar() (bool, error) {
 		return false, err
 	}
 	c.showFamiliar(selected)
+	c.writePathChange(c.Out, PathChange{Action: "updated familiar", Path: c.Paths.FamiliarFile()})
 	return true, nil
 }
 
@@ -190,13 +192,12 @@ func (c *CLI) showFamiliar(name string) {
 	for _, familiar := range availableFamiliars(c.Paths) {
 		if familiar.Name == name {
 			if c.Config.Boring {
-				fmt.Fprintf(c.Out, "familiar=%s\n", familiar.Name)
-				fmt.Fprintf(c.Out, "skills=%s\n", shortPath(familiar.Home, c.Paths.Home))
+				c.writeResponsive(c.Out, "", Grey, "familiar="+familiar.Name, Grey)
+				c.writeResponsive(c.Out, "", Grey, "skills="+shortPath(familiar.Home, c.Paths.Home), Grey)
 				return
 			}
-			theme := c.theme(c.Out)
-			fmt.Fprintln(c.Out, theme.Tag("paw", Amber)+theme.Paint("the grimoire is bound to ", Grey)+theme.Paint(familiar.Label, Violet))
-			fmt.Fprintln(c.Out, theme.Tag("star", Grey)+theme.Paint(shortPath(familiar.Home, c.Paths.Home), Grey))
+			c.writeResponsive(c.Out, "paw", Amber, "the grimoire is bound to "+familiar.Label, Violet)
+			c.writeResponsive(c.Out, "star", Grey, shortPath(familiar.Home, c.Paths.Home), Grey)
 			return
 		}
 	}

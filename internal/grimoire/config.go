@@ -30,7 +30,7 @@ func (c *CLI) configure(args []string) (int, error) {
 		if c.configErr != nil {
 			return 1, c.configErr
 		}
-		fmt.Fprintf(c.Out, "boring=%t\n", c.Config.Boring)
+		c.writeResponsive(c.Out, "", Grey, fmt.Sprintf("boring=%t", c.Config.Boring), Grey)
 		return 0, nil
 	}
 	if args[0] != "boring" || len(args) > 2 {
@@ -59,6 +59,7 @@ func (c *CLI) configure(args []string) (int, error) {
 	}
 	c.Config = updated
 	c.configErr = nil
-	fmt.Fprintf(c.Out, "boring=%t\n", value)
+	c.writeResponsive(c.Out, "", Grey, fmt.Sprintf("boring=%t", value), Grey)
+	c.writePathChange(c.Out, PathChange{Action: "updated config", Path: c.Paths.ConfigFile()})
 	return 0, nil
 }

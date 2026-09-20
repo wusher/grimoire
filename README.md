@@ -139,8 +139,7 @@ $ grimoire --help
 ║                            Alias: bond.                                    │
 ║      unbind [SKILL...]     Forgets bound skills. Without SKILL, opens the  │
 ║                            tree. Alias: unbond.                            │
-║      index                 Lists bound repositories and offers to refresh  │
-║                            them.                                           │
+║      index                 Lists bound repositories and familiar homes.   │
 ║        --refresh           Refreshes now and repairs managed links.        │
 ║      familiar [NAME]       Chooses Global, Claude, OpenCode, or Codex.     │
 ║      config boring [true|false]                                            │
@@ -164,6 +163,9 @@ $ grimoire --help
 
 Selects skills found in the current Git repository. Names or repository-relative
 paths bypass the picker. `bond` is an alias.
+
+After it updates the binding, the command lists each catalog link it created or
+removed, its target, and the changed binding file.
 
 If an older Grimoire catalog-root symlink exists, the command leaves it unchanged.
 Add `--replace-legacy-root` to approve its replacement with managed skill links.
@@ -225,9 +227,11 @@ arrows move  space marks  right opens  left closes  enter confirms  esc quits
 
 ### `grimoire index [--refresh]`
 
-Lists every bound repository with its selected skill count and reports missing
-skills or broken catalog links. In a terminal, `index` asks if you want to
-refresh. `--refresh` starts the refresh without the question.
+Lists every bound repository and every familiar skill home. For each familiar,
+it shows how many bound skills are installed, reports blocked destinations, and
+lists verified installed links. It also reports missing skills or broken catalog
+links. In a terminal, `index` asks if you want to refresh. `--refresh` starts the
+refresh without the question.
 
 Refresh also repairs managed catalog and installed links. It follows a
 Git-detected skill path rename when the skill definition is unchanged apart
@@ -248,7 +252,7 @@ $ grimoire index
 ╓──────────────────────────────────── ❦ ─────────────────────────────────────┐
 ║                                                                            │
 ║                                 I N D E X                                  │
-║                           ✦ every bound folder ✦                           │
+║                    ✦ repositories and familiar homes ✦                    │
 ║                                                                            │
 ║            ──────────────────────── ✦ ────────────────────────             │
 ║                                                                            │
@@ -380,7 +384,10 @@ test-skill removed
 
 ### `grimoire volley`
 
-Installs every bound skill. Safe to run repeatedly.
+Installs every bound skill. Safe to run repeatedly. Rich interactive runs show
+the fireworks animation even when every skill is already installed. The drawing
+scales with the terminal and stays centered when it is resized; press any key to
+skip it.
 
 ```text
 $ grimoire volley

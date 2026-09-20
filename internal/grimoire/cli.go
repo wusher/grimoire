@@ -108,26 +108,32 @@ func (c *CLI) help(out io.Writer) {
 	}
 	theme := c.theme(out)
 	page := NewPage(theme)
-	body := drawSigil(tomeSigil, page, theme, Violet)
+	content := Page{theme: theme, Width: min(page.Width, 94), Inner: min(page.Inner, 88)}
+	body := []string{}
+	if page.Inner >= 58 {
+		body = drawSigil(tomeSigil, page, theme, Violet)
+	} else {
+		body = append(body, page.Centered(theme.Paint("❦", Violet)))
+	}
 	if len(body) > 0 {
 		body = append(body, "")
 	}
-	body = append(body, page.Section("how to say it"), "")
-	body = append(body, "    "+theme.Paint("grimoire", Violet)+" "+theme.Paint("<command> [arguments]", Dim), "")
-	body = appendHelpBlock(body, page, theme, "the book", [][2]string{
+	help := []string{content.Section("how to say it"), ""}
+	help = append(help, content.Centered(theme.Paint("grimoire", Violet)+" "+theme.Paint("<command> [arguments]", Dim)), "")
+	help = appendHelpBlock(help, content, theme, "the book", [][2]string{
 		{"toc | list | ls", "Opens the searchable catalog."},
 	})
-	body = appendHelpBlock(body, page, theme, "the spells", [][2]string{
+	help = appendHelpBlock(help, content, theme, "the spells", [][2]string{
 		{"cast [SKILL]", "Installs one bound skill. Without SKILL, opens the tree."},
 		{"banish [SKILL]", "Removes one skill link. Without SKILL, opens the tree."},
 		{"volley", "Installs every skill in the book."},
 		{"effigy [SKILL]", "Zips one bound skill. Without SKILL, opens a picker."},
 	})
-	body = appendHelpBlock(body, page, theme, "the binding", [][2]string{
+	help = appendHelpBlock(help, content, theme, "the binding", [][2]string{
 		{"bind [NAME...]", "Chooses skills from this Git repository. Alias: bond."},
 		{"unbind [SKILL...]", "Forgets bound skills. Without SKILL, opens the tree. Alias: unbond."},
 		{"  --replace-legacy-root", "Approves replacement of an old catalog-root link."},
-		{"index", "Lists bound repositories and offers to refresh them."},
+		{"index", "Lists bound repositories and every familiar home."},
 		{"  --refresh", "Refreshes now and repairs managed links."},
 		{"familiar [NAME]", "Chooses Global, Claude, OpenCode, or Codex."},
 		{"config boring [true|false]", "Turns minimal, non-interactive output on or off."},
@@ -135,7 +141,7 @@ func (c *CLI) help(out io.Writer) {
 		{"  --dry-run", "Shows the report. Changes nothing."},
 		{"help | -h | --help", "Shows this page."},
 	})
-	body = append(body, page.Section("worth knowing"), "")
+	help = append(help, content.Section("worth knowing"), "")
 	for _, note := range []string{
 		"A bind finds every [skill-name]/SKILL.md below the Git root.",
 		"Full-screen views redraw after a terminal resize.",
@@ -143,8 +149,21 @@ func (c *CLI) help(out io.Writer) {
 		"Global uses ~/.agents/skills and is the default familiar.",
 		"NO_COLOR=1 turns color off. GRIMOIRE_ICONS=0 turns icons off.",
 	} {
-		for _, line := range wrapWords(note, max(1, page.Inner-4)) {
-			body = append(body, "    "+theme.Paint(line, Grey))
+		lines := wrapWords(note, max(1, content.Inner-8))
+		for index, line := range lines {
+			marker := "      "
+			if index == 0 {
+				marker = "   " + theme.Paint("·", Amber) + "  "
+			}
+			help = append(help, marker+theme.Paint(line, Grey))
+		}
+	}
+	contentPad := strings.Repeat(" ", max(0, (page.Inner-content.Inner)/2))
+	for _, line := range help {
+		if line == "" {
+			body = append(body, "")
+		} else {
+			body = append(body, contentPad+line)
 		}
 	}
 	fmt.Fprintln(out)
@@ -165,13 +184,17 @@ func (c *CLI) boringHelp(out io.Writer) {
 		"  bind [NAME...]              Bind skills from this Git repository. Alias: bond.",
 		"  unbind [SKILL...]           Unbind skills. Alias: unbond.",
 		"    --replace-legacy-root     Approve replacement of an old catalog-root link.",
-		"  index [--refresh]           List or refresh bound repositories.",
+		"  index [--refresh]           List repositories and familiar homes; optionally refresh.",
 		"  familiar [NAME]             Set global, claude, opencode, or codex.",
 		"  config boring [true|false]  Set minimal, non-interactive output.",
 		"  hone [--dry-run]            Repair installed links.",
 		"  help | -h | --help          Show this help.",
 	} {
-		fmt.Fprintln(out, line)
+		if visibleWidth(line) > c.theme(out).columns {
+			c.writeResponsive(out, "", Grey, strings.TrimSpace(line), Grey)
+		} else {
+			fmt.Fprintln(out, line)
+		}
 	}
 }
 
@@ -227,7 +250,7 @@ func (c *CLI) toc(args []string) error {
 func (c *CLI) printTOC(catalog Catalog) {
 	if c.Config.Boring {
 		if len(catalog.Skills) == 0 {
-			fmt.Fprintln(c.Out, "no bound skills")
+			c.writeResponsive(c.Out, "", Grey, "no bound skills", Grey)
 			return
 		}
 		for _, skill := range catalog.Skills {
@@ -235,7 +258,7 @@ func (c *CLI) printTOC(catalog Catalog) {
 			if skill.Installed() {
 				status = "installed"
 			}
-			fmt.Fprintf(c.Out, "%s\t%s\n", skill.Name, status)
+			c.writeResponsive(c.Out, "", Grey, skill.Name+"\t"+status, Grey)
 		}
 		return
 	}
@@ -372,7 +395,7 @@ func (c *CLI) cast(args []string) (int, error) {
 		result := Install(c.Paths, skill)
 		results = append(results, result)
 		blocked = blocked || result.Status == InstallBlocked
-		fmt.Fprintln(c.Out, c.resultLine(result))
+		c.writeInstallResult(result)
 	}
 	if !blocked && !c.Config.Boring {
 		theme := c.theme(c.Out)
@@ -410,7 +433,7 @@ func (c *CLI) banish(args []string) (int, error) {
 		result := Uninstall(c.Paths, skill)
 		results = append(results, result)
 		blocked = blocked || result.Status == InstallBlocked
-		fmt.Fprintln(c.Out, c.resultLine(result))
+		c.writeInstallResult(result)
 	}
 	if !blocked && !c.Config.Boring {
 		theme := c.theme(c.Out)
@@ -481,10 +504,10 @@ func (c *CLI) installSummary(results []InstallResult, where string) {
 	}
 	rule := theme.Paint(strings.Repeat("─", 12)+" ✦ "+strings.Repeat("─", 12), Dim)
 	fmt.Fprintln(c.Out)
-	fmt.Fprintln(c.Out, page.Centered(rule))
+	fmt.Fprintln(c.Out, page.Centered(clipVisible(rule, page.Inner)))
 	fmt.Fprintln(c.Out)
 	fmt.Fprintln(c.Out, page.Centered(theme.Paint(theme.Trim(strings.Join(names, "  ·  "), page.Inner), Violet)))
-	fmt.Fprintln(c.Out, page.Centered(strings.Join(words, theme.Paint("  ·  ", Dim))))
+	fmt.Fprintln(c.Out, page.Centered(clipVisible(strings.Join(words, theme.Paint("  ·  ", Dim)), page.Inner)))
 	fmt.Fprintln(c.Out)
 	for index, home := range c.Paths.SkillsHomes() {
 		lead := "and"
@@ -496,13 +519,9 @@ func (c *CLI) installSummary(results []InstallResult, where string) {
 	}
 }
 
-func (c *CLI) resultLine(result InstallResult) string {
-	if c.Config.Boring {
-		return result.Skill.Name + " " + result.Message
-	}
-	theme := c.theme(c.Out)
+func installResultStyle(status InstallStatus) (string, Color) {
 	icon, color := "cross", Red
-	switch result.Status {
+	switch status {
 	case Installed:
 		icon, color = "check", Green
 	case Removed:
@@ -512,7 +531,18 @@ func (c *CLI) resultLine(result InstallResult) string {
 	case Missing:
 		icon, color = "circle", Grey
 	}
-	return theme.Tag(icon, color) + theme.Paint(result.Skill.Name, Violet) + " " + theme.Paint(result.Message, color)
+	return icon, color
+}
+
+func (c *CLI) writeInstallResult(result InstallResult) {
+	icon, color := installResultStyle(result.Status)
+	if c.Config.Boring {
+		icon = ""
+	}
+	c.writeResponsive(c.Out, icon, color, result.Skill.Name+" "+result.Message, color)
+	for _, change := range result.Changes {
+		c.writePathChange(c.Out, change)
+	}
 }
 
 func (c *CLI) volley(args []string) (int, error) {
@@ -540,49 +570,46 @@ func (c *CLI) volley(args []string) (int, error) {
 			failed = append(failed, result)
 		}
 	}
-	theme := c.theme(c.Out)
 	if c.Config.Boring {
 		for _, result := range installed {
-			fmt.Fprintln(c.Out, c.resultLine(result))
+			c.writeInstallResult(result)
 		}
 		for _, result := range failed {
-			fmt.Fprintln(c.Out, c.resultLine(result))
+			c.writeInstallResult(result)
 		}
 		if len(skipped) > 0 {
 			c.note(fmt.Sprintf("%d already installed", len(skipped)))
 		}
-		fmt.Fprintf(c.Out, "installed=%d skipped=%d failed=%d\n", len(installed), len(skipped), len(failed))
+		c.writeResponsive(c.Out, "", Grey, fmt.Sprintf("installed=%d skipped=%d failed=%d", len(installed), len(skipped), len(failed)), Grey)
 	} else {
-		if len(installed) > 0 {
-			input, inputOK := c.In.(*os.File)
-			output, outputOK := c.Out.(*os.File)
-			if inputOK && outputOK {
-				names := make([]string, 0, len(installed))
-				for _, result := range installed {
-					names = append(names, result.Skill.Name)
-				}
-				runFireworks(input, output, theme, names)
+		theme := c.theme(c.Out)
+		input, inputOK := c.In.(*os.File)
+		output, outputOK := c.Out.(*os.File)
+		if inputOK && outputOK {
+			names := make([]string, 0, len(catalog.Skills))
+			for _, skill := range catalog.Skills {
+				names = append(names, skill.Name)
 			}
+			playFireworks(input, output, theme, names)
 		}
 		for _, result := range installed {
-			fmt.Fprintln(c.Out, c.resultLine(result))
+			c.writeInstallResult(result)
 		}
 		for _, result := range failed {
-			fmt.Fprintln(c.Out, c.resultLine(result))
+			c.writeInstallResult(result)
 		}
 		if len(skipped) > 0 {
 			c.note(fmt.Sprintf("%d already installed", len(skipped)))
 		}
-		fmt.Fprintln(c.Out, theme.Tag("flame", Amber)+
-			theme.Paint(fmt.Sprintf("installed %d", len(installed)), Green)+", "+
-			theme.Paint(fmt.Sprintf("skipped %d", len(skipped)), Grey)+", "+
-			theme.Paint(fmt.Sprintf("failed %d", len(failed)), map[bool]Color{true: Red, false: Grey}[len(failed) > 0]))
+		c.writeResponsive(c.Out, "flame", Amber, fmt.Sprintf("installed %d, skipped %d, failed %d", len(installed), len(skipped), len(failed)), map[bool]Color{true: Red, false: Grey}[len(failed) > 0])
 	}
 	if len(failed) > 0 {
 		return 1, nil
 	}
 	return 0, nil
 }
+
+var playFireworks = runFireworks
 
 func (c *CLI) hone(args []string) error {
 	dryRun := false
@@ -593,12 +620,15 @@ func (c *CLI) hone(args []string) error {
 		dryRun = true
 	}
 	changes, err := Hone(c.Paths, dryRun)
+	if err != nil {
+		changes = nil
+	}
 	if c.Config.Boring {
 		if dryRun {
-			fmt.Fprintln(c.Out, "dry run; nothing was changed")
+			c.writeResponsive(c.Out, "", Grey, "dry run; nothing was changed", Grey)
 		}
-		if len(changes) == 0 {
-			fmt.Fprintln(c.Out, "nothing to repair")
+		if err == nil && len(changes) == 0 {
+			c.writeResponsive(c.Out, "", Grey, "nothing to repair", Grey)
 		}
 		for _, change := range changes {
 			action := change.Action
@@ -614,7 +644,7 @@ func (c *CLI) hone(args []string) error {
 					action = "would release"
 				}
 			}
-			fmt.Fprintf(c.Out, "%s %s: %s (%s)\n", action, change.Name, change.Message, shortPath(change.Home, c.Paths.Home))
+			c.writeResponsive(c.Out, "", Grey, fmt.Sprintf("%s %s: %s (%s)", action, change.Name, change.Message, shortPath(filepath.Join(change.Home, change.Name), c.Paths.Home)), Grey)
 		}
 		catalog, loadErr := LoadCatalog(c.Paths)
 		if loadErr == nil {
@@ -623,12 +653,12 @@ func (c *CLI) hone(args []string) error {
 		return err
 	}
 	theme := c.theme(c.Out)
-	fmt.Fprintln(c.Out, theme.Tag("wrench", Magenta)+theme.Paint("hone", Bold))
+	c.writeResponsive(c.Out, "wrench", Magenta, "hone", Magenta)
 	if dryRun {
-		fmt.Fprintln(c.Out, theme.Tag("star", Grey)+theme.Paint("dry run. Nothing was changed.", Grey))
+		c.writeResponsive(c.Out, "star", Grey, "dry run. Nothing was changed.", Grey)
 	}
-	if len(changes) == 0 {
-		fmt.Fprintln(c.Out, theme.Tag("star", Grey)+theme.Paint("nothing to repair", Grey))
+	if err == nil && len(changes) == 0 {
+		c.writeResponsive(c.Out, "star", Grey, "nothing to repair", Grey)
 	}
 	counts := map[string]int{}
 	for _, change := range changes {
@@ -657,8 +687,8 @@ func (c *CLI) hone(args []string) error {
 				action = "would release"
 			}
 		}
-		message := fmt.Sprintf("%s (%s)", change.Message, shortPath(change.Home, c.Paths.Home))
-		fmt.Fprintln(c.Out, theme.Tag(icon, color)+theme.Paint(action, color)+" "+theme.Paint(change.Name, Violet)+": "+theme.Paint(message, Dim))
+		message := fmt.Sprintf("%s %s: %s (%s)", action, change.Name, change.Message, shortPath(filepath.Join(change.Home, change.Name), c.Paths.Home))
+		c.writeResponsive(c.Out, icon, color, message, color)
 	}
 	if len(changes) > 0 {
 		words := []string{}
@@ -685,7 +715,7 @@ func (c *CLI) hone(args []string) error {
 		if count := counts["released"]; count > 0 {
 			words = append(words, theme.Paint(fmt.Sprintf("%d ownership released", count), Grey))
 		}
-		fmt.Fprintln(c.Out, strings.Join(words, theme.Paint("  ·  ", Dim)))
+		c.writeResponsive(c.Out, "", Grey, ansiPattern.ReplaceAllString(strings.Join(words, "  ·  "), ""), Grey)
 	}
 	catalog, loadErr := LoadCatalog(c.Paths)
 	if loadErr == nil {
@@ -712,13 +742,11 @@ func (c *CLI) effigy(args []string) (int, error) {
 		path, packErr := Pack(c.Paths, skill)
 		if packErr != nil {
 			failed = true
-			theme := c.theme(c.Err)
-			fmt.Fprintln(c.Err, theme.Tag("cross", Red)+theme.Paint(skill.Name, Violet)+" "+theme.Paint(packErr.Error(), Red))
+			c.writeResponsive(c.Err, "cross", Red, skill.Name+" "+packErr.Error(), Red)
 			continue
 		}
 		info, _ := os.Stat(path)
-		theme := c.theme(c.Out)
-		fmt.Fprintln(c.Out, theme.Tag("plus", Green)+theme.Paint("packed ", Green)+theme.Paint(skill.Name, Violet)+theme.Paint(" to ", Grey)+theme.Paint(shortPath(path, c.Paths.Home), Green)+" "+theme.Paint("("+weight(info.Size())+")", Grey))
+		c.writeResponsive(c.Out, "plus", Green, fmt.Sprintf("packed %s to %s (%s)", skill.Name, shortPath(path, c.Paths.Home), weight(info.Size())), Green)
 	}
 	if failed {
 		return 1, nil
@@ -805,7 +833,7 @@ func (c *CLI) index(args []string) (int, error) {
 	if !refresh {
 		c.showIndex(repositories)
 		if c.Config.Boring {
-			fmt.Fprintln(c.Out, "run grimoire index --refresh to refresh repositories")
+			c.writeResponsive(c.Out, "", Grey, "run grimoire index --refresh to refresh repositories", Grey)
 			return 0, nil
 		}
 		refresh, err = c.confirmIndexRefresh()
@@ -833,6 +861,7 @@ func (c *CLI) index(args []string) (int, error) {
 }
 
 func (c *CLI) showIndex(repositories []BoundRepository) {
+	familiars := indexFamiliars(c.Paths, repositories)
 	if c.Config.Boring {
 		for _, repository := range repositories {
 			status := fmt.Sprintf("%d skill%s bound", len(repository.Skills), plural(len(repository.Skills)))
@@ -851,7 +880,14 @@ func (c *CLI) showIndex(repositories []BoundRepository) {
 				}
 				status = strings.Join(issues, ", ")
 			}
-			fmt.Fprintf(c.Out, "%s\t%s\n", shortPath(repository.Path, c.Paths.Home), status)
+			c.writeResponsive(c.Out, "", Grey, shortPath(repository.Path, c.Paths.Home)+"\t"+status, Grey)
+		}
+		for _, familiar := range familiars {
+			message := fmt.Sprintf("familiar=%s\thome=%s\tinstalled=%d\tbound=%d\tblocked=%d", familiar.Name, shortPath(familiar.Home, c.Paths.Home), len(familiar.Skills), familiar.Bound, familiar.Blocked)
+			c.writeResponsive(c.Out, "", Grey, message, Grey)
+			for _, skill := range familiar.Skills {
+				c.writeResponsive(c.Out, "", Grey, "skill="+skill.Name+"\tlink="+shortPath(skill.Link, c.Paths.Home)+"\ttarget="+shortPath(skill.Target, c.Paths.Home), Grey)
+			}
 		}
 		return
 	}
@@ -878,9 +914,72 @@ func (c *CLI) showIndex(repositories []BoundRepository) {
 		entry := theme.Paint(fmt.Sprintf("%5s", roman(index+1)+"."), Amber) + " " + theme.Paint(shortPath(repository.Path, c.Paths.Home), Violet)
 		body = append(body, page.Fill(entry, status, "· "))
 	}
+	body = append(body, "", page.Section("familiar homes"), "")
+	for _, familiar := range familiars {
+		entry := theme.Paint(familiar.Label, Amber)
+		home := theme.Paint(shortPath(familiar.Home, c.Paths.Home), Violet)
+		body = append(body, page.Fill(entry, home, "· "))
+		status := fmt.Sprintf("%d of %d bound skill%s installed", len(familiar.Skills), familiar.Bound, plural(familiar.Bound))
+		if familiar.Blocked > 0 {
+			status += fmt.Sprintf("  ·  %d blocked", familiar.Blocked)
+		}
+		body = append(body, "    "+theme.Paint(status, Dim))
+		for _, skill := range familiar.Skills {
+			link := shortPath(skill.Link, c.Paths.Home) + " -> " + shortPath(skill.Target, c.Paths.Home)
+			body = append(body, "    "+theme.Paint(skill.Name, Green))
+			for _, line := range wrapWords(link, max(1, page.Inner-8)) {
+				body = append(body, "        "+theme.Paint(line, Dim))
+			}
+		}
+	}
 	fmt.Fprintln(c.Out)
-	writeLines(c.Out, page.Bind(body, "index", "every bound folder", fmt.Sprintf("%d repositories", len(repositories))))
+	writeLines(c.Out, page.Bind(body, "index", "repositories and familiar homes", fmt.Sprintf("%d repositories  ·  %d familiars", len(repositories), len(familiars))))
 	fmt.Fprintln(c.Out)
+}
+
+type indexedFamiliar struct {
+	Name    string
+	Label   string
+	Home    string
+	Bound   int
+	Blocked int
+	Skills  []indexedFamiliarSkill
+}
+
+type indexedFamiliarSkill struct {
+	Name   string
+	Link   string
+	Target string
+}
+
+func indexFamiliars(paths Paths, repositories []BoundRepository) []indexedFamiliar {
+	familiars := availableFamiliars(paths)
+	indexed := make([]indexedFamiliar, 0, len(familiars))
+	for _, familiar := range familiars {
+		entry := indexedFamiliar{Name: familiar.Name, Label: familiar.Label, Home: familiar.Home}
+		for _, repository := range repositories {
+			for _, rel := range repository.Skills {
+				entry.Bound++
+				target := filepath.Join(repository.Path, rel)
+				link := filepath.Join(familiar.Home, filepath.Base(rel))
+				if _, err := os.Lstat(link); err != nil {
+					if !os.IsNotExist(err) {
+						entry.Blocked++
+					}
+					continue
+				}
+				actual, err := linkTarget(link)
+				if err != nil || !samePath(actual, target) {
+					entry.Blocked++
+					continue
+				}
+				entry.Skills = append(entry.Skills, indexedFamiliarSkill{Name: filepath.Base(rel), Link: link, Target: target})
+			}
+		}
+		sort.Slice(entry.Skills, func(i, j int) bool { return entry.Skills[i].Name < entry.Skills[j].Name })
+		indexed = append(indexed, entry)
+	}
+	return indexed
 }
 
 func (c *CLI) showRefresh(results []RefreshResult) {
@@ -897,17 +996,17 @@ func (c *CLI) showRefresh(results []RefreshResult) {
 			case Pulled:
 				pulled++
 			}
-			fmt.Fprintf(c.Out, "%s %s\n", shortPath(result.Repo, c.Paths.Home), result.Message)
+			c.writeResponsive(c.Out, "", Grey, shortPath(result.Repo, c.Paths.Home)+" "+result.Message, Grey)
 			for _, change := range result.Changes {
 				label := change.Action
 				if change.Name != "" {
 					label += " " + change.Name
 				}
-				fmt.Fprintf(c.Out, "  %s %s\n", label, change.Message)
+				c.writeResponsive(c.Out, "", Grey, label+" "+change.Message, Grey)
 			}
 			repaired += result.repaired
 		}
-		fmt.Fprintf(c.Out, "pulled=%d current=%d skipped=%d failed=%d repaired=%d\n", pulled, current, skipped, failed, repaired)
+		c.writeResponsive(c.Out, "", Grey, fmt.Sprintf("pulled=%d current=%d skipped=%d failed=%d repaired=%d", pulled, current, skipped, failed, repaired), Grey)
 		return
 	}
 	theme := c.theme(c.Out)
@@ -928,7 +1027,7 @@ func (c *CLI) showRefresh(results []RefreshResult) {
 		case Pulled:
 			pulled++
 		}
-		fmt.Fprintln(c.Out, theme.Tag(icon, color)+theme.Paint(shortPath(result.Repo, c.Paths.Home), Violet)+" "+theme.Paint(result.Message, color))
+		c.writeResponsive(c.Out, icon, color, shortPath(result.Repo, c.Paths.Home)+" "+result.Message, color)
 		for _, change := range result.Changes {
 			changeColor := Cyan
 			if change.Action == "renamed" || change.Action == "moved" {
@@ -938,7 +1037,7 @@ func (c *CLI) showRefresh(results []RefreshResult) {
 			if change.Name != "" {
 				label += " " + change.Name
 			}
-			fmt.Fprintln(c.Out, "  "+theme.Tag("wrench", changeColor)+theme.Paint(label, changeColor)+" "+theme.Paint(change.Message, Dim))
+			c.writeResponsive(c.Out, "wrench", changeColor, label+" "+change.Message, changeColor)
 		}
 		repaired += result.repaired
 	}
@@ -956,7 +1055,7 @@ func (c *CLI) showRefresh(results []RefreshResult) {
 		words = append(words, theme.Paint(fmt.Sprintf("%d link%s repaired", repaired, plural(repaired)), Cyan))
 	}
 	fmt.Fprintln(c.Out)
-	fmt.Fprintln(c.Out, page.Centered(strings.Join(words, theme.Paint("  ·  ", Dim))))
+	fmt.Fprintln(c.Out, page.Centered(clipVisible(strings.Join(words, theme.Paint("  ·  ", Dim)), page.Inner)))
 }
 
 func (c *CLI) unbind(args []string) (int, error) {
@@ -991,6 +1090,7 @@ func (c *CLI) unbind(args []string) (int, error) {
 	for _, skill := range chosen {
 		results = append(results, BindResult{Status: Unbound, Path: c.Paths.Binding(), Target: skill.Dir, Message: "unbound"})
 	}
+	results[0].Changes = result.Changes
 	return c.showBindingResults("unbind", "the book lets go", results, false)
 }
 
@@ -1020,7 +1120,10 @@ func (c *CLI) showBindingResults(command, subtitle string, results []BindResult,
 			if label == "" {
 				label = shortPath(result.Path, c.Paths.Home)
 			}
-			fmt.Fprintln(c.Out, strings.TrimSpace(label+" "+result.Message))
+			c.writeResponsive(c.Out, "", Grey, strings.TrimSpace(label+" "+result.Message), Grey)
+			for _, change := range result.Changes {
+				c.writePathChange(c.Out, change)
+			}
 		}
 		if failed {
 			return 1, nil
@@ -1082,7 +1185,10 @@ func (c *CLI) showBindingResults(command, subtitle string, results []BindResult,
 		if label == "" {
 			label = "skills/"
 		}
-		fmt.Fprintln(c.Out, theme.Tag(icon, color)+theme.Paint(label, Violet)+" "+theme.Paint(result.Message, color))
+		c.writeResponsive(c.Out, icon, color, label+" "+result.Message, color)
+		for _, change := range result.Changes {
+			c.writePathChange(c.Out, change)
+		}
 	}
 	if failed {
 		return 1, nil
@@ -1130,21 +1236,50 @@ func (c *CLI) warnCatalog(catalog Catalog) {
 }
 
 func (c *CLI) warnTooDeep(catalog Catalog) {
-	theme := c.theme(c.Err)
 	for _, path := range catalog.TooDeep {
 		message := path + " sits too deep. One group folder is the limit."
-		fmt.Fprintln(c.Err, theme.Tag("warn", Amber)+theme.Paint(message, Amber))
+		c.writeResponsive(c.Err, "warn", Amber, message, Amber)
 	}
 }
 
 func (c *CLI) trouble(message string) {
-	theme := c.theme(c.Err)
-	fmt.Fprintln(c.Err, theme.Tag("cross", Red)+theme.Paint(message, Red))
+	c.writeResponsive(c.Err, "cross", Red, message, Red)
 }
 
 func (c *CLI) note(message string) {
-	theme := c.theme(c.Out)
-	fmt.Fprintln(c.Out, theme.Tag("star", Grey)+theme.Paint(message, Grey))
+	c.writeResponsive(c.Out, "star", Grey, message, Grey)
+}
+
+func (c *CLI) writePathChange(output io.Writer, change PathChange) {
+	message := change.Action + " " + shortPath(change.Path, c.Paths.Home)
+	if change.Target != "" {
+		message += " -> " + shortPath(change.Target, c.Paths.Home)
+	}
+	c.writeResponsive(output, "wrench", Cyan, message, Cyan)
+}
+
+func (c *CLI) writeResponsive(output io.Writer, icon string, iconColor Color, message string, color Color) {
+	theme := c.theme(output)
+	prefix := theme.Tag(icon, iconColor)
+	if visibleWidth(prefix) >= theme.columns {
+		prefix = ""
+	}
+	room := max(1, theme.columns-visibleWidth(prefix))
+	lines := []string{message}
+	if visibleWidth(message) > room {
+		lines = wrapWords(message, room)
+	}
+	if len(lines) == 0 {
+		lines = []string{""}
+	}
+	indent := strings.Repeat(" ", visibleWidth(prefix))
+	for index, line := range lines {
+		lead := indent
+		if index == 0 {
+			lead = prefix
+		}
+		fmt.Fprintln(output, lead+theme.Paint(line, color))
+	}
 }
 
 func writeLines(output io.Writer, lines []string) {

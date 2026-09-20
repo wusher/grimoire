@@ -17,8 +17,10 @@ const (
 	fireworkFrame = 50 * time.Millisecond
 	fireworkRise  = 0.5
 	fireworkBloom = 0.9
-	fireworkCols  = 120
-	fireworkRows  = 36
+	// Keep pathological terminal reports bounded while allowing the animation
+	// to grow across normal large displays.
+	fireworkCols = 320
+	fireworkRows = 100
 )
 
 type fireworkCell struct {
@@ -77,7 +79,8 @@ func runFireworks(input, output *os.File, theme Theme, names []string) {
 			_, _ = readKey(reader, input)
 			break
 		}
-		size := fireworkViewport(terminalViewport(output))
+		viewport := terminalViewport(output)
+		size := fireworkViewport(viewport)
 		age := time.Since(started).Seconds()
 		wanted := 0
 		if age <= fireworkSpan.Seconds()-fireworkRise {
@@ -94,7 +97,7 @@ func runFireworks(input, output *os.File, theme Theme, names []string) {
 			placeShell(frame, shell, age-shell.born)
 		}
 		stampBanner(frame, age)
-		drawFireworkFrame(output, frame, theme)
+		drawFireworkFrame(output, frame, theme, viewport)
 		time.Sleep(fireworkFrame)
 	}
 }
@@ -219,15 +222,25 @@ func stampBanner(grid [][]fireworkCell, age float64) {
 
 func bannerMeasure(count int) int { return count*6 - 1 }
 
-func drawFireworkFrame(output *os.File, grid [][]fireworkCell, theme Theme) {
+func drawFireworkFrame(output *os.File, grid [][]fireworkCell, theme Theme, size viewport) {
 	var frame strings.Builder
-	for row, cells := range grid {
+	top := max(0, (size.rows-len(grid))/2)
+	gridWidth := 0
+	if len(grid) > 0 {
+		gridWidth = len(grid[0])
+	}
+	left := max(0, (size.columns-gridWidth)/2)
+	for row := range size.rows {
 		var line strings.Builder
-		for _, cell := range cells {
-			if cell.mark == "" {
-				line.WriteByte(' ')
-			} else {
-				line.WriteString(theme.Paint(cell.mark, cell.color))
+		at := row - top
+		if at >= 0 && at < len(grid) {
+			line.WriteString(strings.Repeat(" ", left))
+			for _, cell := range grid[at] {
+				if cell.mark == "" {
+					line.WriteByte(' ')
+				} else {
+					line.WriteString(theme.Paint(cell.mark, cell.color))
+				}
 			}
 		}
 		fmt.Fprintf(&frame, "\x1b[%d;1H%s\x1b[K", row+1, line.String())

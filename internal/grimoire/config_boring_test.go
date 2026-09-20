@@ -117,19 +117,19 @@ func TestBoringModeUsesPlainOutputAndRequiresExplicitNames(t *testing.T) {
 	if code, body := run("cast"); code != 1 || !strings.Contains(body, "grimoire cast SKILL") {
 		t.Fatalf("boring cast guidance = %d: %s", code, body)
 	}
-	if code, body := run("cast", "alpha"); code != 0 || body != "alpha installed\n" {
+	if code, body := run("cast", "alpha"); code != 0 || body != "alpha installed\ncreated link ~/claude/skills/alpha -> ~/library/skills/alpha\n" {
 		t.Fatalf("boring cast = %d: %q", code, body)
 	}
 	if code, body := run("banish"); code != 1 || !strings.Contains(body, "grimoire banish SKILL") {
 		t.Fatalf("boring banish guidance = %d: %s", code, body)
 	}
-	if code, body := run("banish", "alpha"); code != 0 || body != "alpha removed\n" {
+	if code, body := run("banish", "alpha"); code != 0 || body != "alpha removed\nremoved link ~/claude/skills/alpha -> ~/library/skills/alpha\n" {
 		t.Fatalf("boring banish = %d: %q", code, body)
 	}
 	if code, body := run("effigy"); code != 1 || !strings.Contains(body, "grimoire effigy SKILL") {
 		t.Fatalf("boring effigy guidance = %d: %s", code, body)
 	}
-	if code, body := run("volley"); code != 0 || body != "alpha installed\ninstalled=1 skipped=0 failed=0\n" {
+	if code, body := run("volley"); code != 0 || body != "alpha installed\ncreated link ~/claude/skills/alpha -> ~/library/skills/alpha\ninstalled=1 skipped=0 failed=0\n" {
 		t.Fatalf("boring volley = %d: %q", code, body)
 	}
 	if code, body := run("hone"); code != 0 || body != "nothing to repair\n" {
@@ -144,7 +144,7 @@ func TestBoringModeUsesPlainOutputAndRequiresExplicitNames(t *testing.T) {
 	if code, body := run("unbind"); code != 1 || !strings.Contains(body, "grimoire unbind NAME") {
 		t.Fatalf("boring unbind guidance = %d: %s", code, body)
 	}
-	if code, body := run("unbind", "alpha"); code != 0 || body != "alpha unbound\n" {
+	if code, body := run("unbind", "alpha"); code != 0 || !strings.Contains(body, "alpha unbound") || !strings.Contains(body, "removed catalog link") || !strings.Contains(body, "updated binding") {
 		t.Fatalf("boring unbind = %d: %q", code, body)
 	}
 	if code, body := run("index"); code != 0 || !strings.Contains(body, "grimoire index --refresh") {
@@ -176,7 +176,7 @@ func TestRichVolleyRetainsDetailedAndAggregateOutput(t *testing.T) {
 	if code := cli.Run(context.Background(), []string{"volley"}); code != 0 {
 		t.Fatalf("rich volley = %d: %s", code, out.String())
 	}
-	if got, want := out.String(), "alpha installed\n1 already installed\ninstalled 1, skipped 1, failed 0\n"; got != want {
+	if got, want := out.String(), "alpha installed\ncreated link ~/claude/skills/alpha -> ~/library/skills/alpha\n1 already installed\ninstalled 1, skipped 1, failed 0\n"; got != want {
 		t.Fatalf("rich volley output = %q, want %q", got, want)
 	}
 }
@@ -202,7 +202,7 @@ func TestBoringVolleyRetainsPlainDetailsAndSkippedCount(t *testing.T) {
 	if code := cli.Run(context.Background(), []string{"volley"}); code != 0 {
 		t.Fatalf("boring volley = %d: %s", code, out.String())
 	}
-	want := "alpha installed\n1 already installed\ninstalled=1 skipped=1 failed=0\n"
+	want := "alpha installed\ncreated link ~/claude/skills/alpha -> ~/library/skills/alpha\n1 already installed\ninstalled=1 skipped=1 failed=0\n"
 	if got := out.String(); got != want {
 		t.Fatalf("boring volley output = %q, want %q", got, want)
 	}

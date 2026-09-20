@@ -5,9 +5,11 @@ import (
 	"io"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
+	"github.com/mattn/go-runewidth"
 	"golang.org/x/term"
 )
 
@@ -37,6 +39,9 @@ type Theme struct {
 
 func NewTheme(output io.Writer) Theme {
 	theme := Theme{columns: 80}
+	if columns, err := strconv.Atoi(os.Getenv("COLUMNS")); err == nil && columns > 0 {
+		theme.columns = columns
+	}
 	file, ok := output.(*os.File)
 	if !ok || !term.IsTerminal(int(file.Fd())) {
 		return theme
@@ -92,7 +97,7 @@ func (t Theme) Tag(name string, color Color) string {
 
 func (t Theme) Trim(text string, room int) string {
 	plain := ansiPattern.ReplaceAllString(text, "")
-	if utf8.RuneCountInString(plain) <= room {
+	if runewidth.StringWidth(plain) <= room {
 		return text
 	}
 	if room <= 0 {
@@ -100,15 +105,14 @@ func (t Theme) Trim(text string, room int) string {
 	}
 	// Trim is used on unpainted prose and paths. Keeping that invariant makes
 	// truncation predictable and prevents cutting an ANSI escape sequence.
-	runes := []rune(plain)
 	if room <= 3 {
-		return string(runes[:min(room, len(runes))])
+		return runewidth.Truncate(plain, room, "")
 	}
-	return string(runes[:room-3]) + "..."
+	return runewidth.Truncate(plain, room, "...")
 }
 
 func visibleWidth(text string) int {
-	return utf8.RuneCountInString(ansiPattern.ReplaceAllString(text, ""))
+	return runewidth.StringWidth(ansiPattern.ReplaceAllString(text, ""))
 }
 
 func clipVisible(text string, room int) string {
@@ -131,10 +135,14 @@ func clipVisible(text string, room int) string {
 				continue
 			}
 		}
-		_, size := utf8.DecodeRuneInString(text)
+		r, size := utf8.DecodeRuneInString(text)
+		width := runewidth.RuneWidth(r)
+		if visible+width > room {
+			break
+		}
 		out.WriteString(text[:size])
 		text = text[size:]
-		visible++
+		visible += width
 	}
 	if painted {
 		out.WriteString("\x1b[0m")
@@ -196,8 +204,7 @@ type Page struct {
 }
 
 func NewPage(theme Theme) Page {
-	width := min(theme.columns, 78)
-	return newPage(theme, width)
+	return newPage(theme, theme.columns)
 }
 
 func newPageWidth(theme Theme, width int) Page {
@@ -205,8 +212,8 @@ func newPageWidth(theme Theme, width int) Page {
 }
 
 func newPage(theme Theme, width int) Page {
-	width = max(width, 7)
-	return Page{theme: theme, Width: width, Inner: width - 6}
+	width = max(width, 1)
+	return Page{theme: theme, Width: width, Inner: max(0, width-6)}
 }
 
 func (p Page) Bind(body []string, title, subtitle, folio string) []string {
@@ -224,6 +231,10 @@ func (p Page) Bind(body []string, title, subtitle, folio string) []string {
 }
 
 func (p Page) Line(text string) string {
+	if p.Width < 7 {
+		text = clipVisible(text, p.Width)
+		return text + strings.Repeat(" ", max(0, p.Width-visibleWidth(text)))
+	}
 	text = clipVisible(text, p.Inner)
 	padding := max(0, p.Inner-visibleWidth(text))
 	return p.theme.Paint("║", Grey) + "  " + text + strings.Repeat(" ", padding) + "  " + p.theme.Paint("│", Grey)
@@ -297,6 +308,9 @@ func (p Page) Fill(left, right, leader string) string {
 }
 
 func (p Page) border(left, right, mark string) string {
+	if p.Width < 7 {
+		return p.theme.Paint(strings.Repeat("─", p.Width), Grey)
+	}
 	inside := p.Width - 2
 	middle := ""
 	if mark != "" {
@@ -324,13 +338,23 @@ func spaced(text string) string {
 }
 
 func wrapWords(text string, room int) []string {
+	room = max(1, room)
 	words := strings.Fields(text)
 	if len(words) == 0 {
 		return nil
 	}
 	lines := []string{}
 	for _, word := range words {
-		if len(lines) == 0 || utf8.RuneCountInString(lines[len(lines)-1])+1+utf8.RuneCountInString(word) > room {
+		if visibleWidth(word) > room {
+			for visibleWidth(word) > room {
+				part := clipVisible(word, room)
+				lines = append(lines, part)
+				word = strings.TrimPrefix(word, part)
+			}
+			if word != "" {
+				lines = append(lines, word)
+			}
+		} else if len(lines) == 0 || lines[len(lines)-1] == "" || visibleWidth(lines[len(lines)-1])+1+visibleWidth(word) > room {
 			lines = append(lines, word)
 		} else {
 			lines[len(lines)-1] += " " + word

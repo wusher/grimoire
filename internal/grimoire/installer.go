@@ -20,6 +20,7 @@ type InstallResult struct {
 	Status  InstallStatus
 	Skill   Skill
 	Message string
+	Changes []PathChange
 }
 
 func Install(paths Paths, skill Skill) InstallResult {
@@ -100,12 +101,20 @@ func Install(paths Paths, skill Skill) InstallResult {
 	}
 	if plan.Count() == 0 {
 		message := "already installed"
+		changes := []PathChange{}
 		if adopted > 0 {
 			message += "; ownership recorded"
+			for _, link := range links {
+				changes = append(changes, PathChange{Action: "recorded ownership", Path: link, Target: skill.Dir})
+			}
 		}
-		return InstallResult{Status: AlreadyStatus, Skill: skill, Message: message}
+		return InstallResult{Status: AlreadyStatus, Skill: skill, Message: message, Changes: changes}
 	}
-	return InstallResult{Status: Installed, Skill: skill, Message: "installed"}
+	changes := make([]PathChange, 0, len(links))
+	for _, link := range links {
+		changes = append(changes, PathChange{Action: "created link", Path: link, Target: skill.Dir})
+	}
+	return InstallResult{Status: Installed, Skill: skill, Message: "installed", Changes: changes}
 }
 
 const AlreadyStatus InstallStatus = "already"
@@ -170,10 +179,18 @@ func Uninstall(paths Paths, skill Skill) InstallResult {
 	}
 	if plan.Count() == 0 {
 		message := "not installed"
+		changes := []PathChange{}
 		if released > 0 {
 			message += "; stale ownership removed"
+			for _, link := range links {
+				changes = append(changes, PathChange{Action: "released ownership", Path: link})
+			}
 		}
-		return InstallResult{Status: Missing, Skill: skill, Message: message}
+		return InstallResult{Status: Missing, Skill: skill, Message: message, Changes: changes}
 	}
-	return InstallResult{Status: Removed, Skill: skill, Message: "removed"}
+	changes := make([]PathChange, 0, len(links))
+	for _, link := range links {
+		changes = append(changes, PathChange{Action: "removed link", Path: link, Target: skill.Dir})
+	}
+	return InstallResult{Status: Removed, Skill: skill, Message: "removed", Changes: changes}
 }

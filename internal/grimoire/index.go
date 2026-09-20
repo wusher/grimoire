@@ -619,8 +619,7 @@ func (c *CLI) confirmIndexRefresh() (bool, error) {
 	if !ok {
 		return false, nil
 	}
-	theme := NewTheme(output)
-	fmt.Fprint(output, theme.Tag("spark", Violet)+theme.Paint("refresh repositories now?", Violet)+theme.Paint(" [y/N] ", Grey))
+	c.writeResponsive(output, "", Grey, "refresh repositories now? [y/N]", Violet)
 	scanner := bufio.NewScanner(input)
 	if !scanner.Scan() {
 		return false, scanner.Err()
