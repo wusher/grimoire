@@ -130,7 +130,7 @@ func (c *CLI) help(out io.Writer) {
 		{"effigy [SKILL]", "Zips one bound skill. Without SKILL, opens a picker."},
 	})
 	help = appendHelpBlock(help, content, theme, "the binding", [][2]string{
-		{"bind [NAME...]", "Chooses skills from this Git repository. Alias: bond."},
+		{"bind [NAME...]", "Adds skills from this Git repository. Alias: bond."},
 		{"unbind [SKILL...]", "Forgets bound skills. Without SKILL, opens the tree. Alias: unbond."},
 		{"  --replace-legacy-root", "Approves replacement of an old catalog-root link."},
 		{"index", "Lists bound repositories and every familiar home."},
@@ -181,7 +181,7 @@ func (c *CLI) boringHelp(out io.Writer) {
 		"  banish [SKILL]              Remove one installed skill link.",
 		"  volley                      Install all bound skills.",
 		"  effigy [SKILL]              Write one skill zip file.",
-		"  bind [NAME...]              Bind skills from this Git repository. Alias: bond.",
+		"  bind [NAME...]              Add skills from this Git repository. Alias: bond.",
 		"  unbind [SKILL...]           Unbind skills. Alias: unbond.",
 		"    --replace-legacy-root     Approve replacement of an old catalog-root link.",
 		"  index [--refresh]           List repositories and familiar homes; optionally refresh.",
@@ -815,7 +815,11 @@ func (c *CLI) chooseSkills(args []string, skills []Skill, scope, command string)
 	if !inOK || !errOK {
 		return nil, fmt.Errorf("this terminal cannot show a picker. Pass skill names or paths instead")
 	}
-	return (Picker{In: inFile, Out: errFile, Prompt: command + " which?", Theme: c.theme(errFile)}).Pick(skills)
+	picker := Picker{In: inFile, Out: errFile, Prompt: command + " which?", Theme: c.theme(errFile)}
+	if command == "bind" {
+		picker.SelectAllLabel = "bind all"
+	}
+	return picker.Pick(skills)
 }
 
 func (c *CLI) index(args []string) (int, error) {
@@ -1204,7 +1208,7 @@ func (c *CLI) bindingBody(page Page, theme Theme, art []string, hue Color, comma
 	omens := []string{
 		"the chosen skills now answer from the book",
 		"their source stays in this repository",
-		"bind again here to change the selection",
+		"bind again here to add more skills",
 	}
 	if command == "unbind" {
 		omens = []string{

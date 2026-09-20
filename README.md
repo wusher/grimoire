@@ -79,10 +79,10 @@ path. Use `grimoire index --refresh` to refresh without a question. Run
 `grimoire config boring false` to restore rich output.
 
 The selection is stored in `~/.config/grimoire/bindings.json`, so every other
-command works from any directory. Run `bind` again in the same repository to
-replace its selection. Run `unbind` from any directory to choose from all bound
-skills. Run `index` to list every bound repository. In a terminal, it then asks
-if you want to refresh them. Use `--refresh` to update them without the question.
+command works from any directory. Run `bind` again in the same repository to add
+skills. Run `unbind` from any directory to choose skills to remove. Run `index`
+to list every bound repository. In a terminal, it then asks if you want to
+refresh them. Use `--refresh` to update them without the question.
 
 ## Commands
 
@@ -135,7 +135,7 @@ $ grimoire --help
 ║                                                                            │
 ║   T H E   B I N D I N G ────────────────────────────────────────────────   │
 ║                                                                            │
-║      bind [NAME...]        Chooses skills from this Git repository.        │
+║      bind [NAME...]        Adds skills from this Git repository.           │
 ║                            Alias: bond.                                    │
 ║      unbind [SKILL...]     Forgets bound skills. Without SKILL, opens the  │
 ║                            tree. Alias: unbond.                            │
@@ -161,11 +161,12 @@ $ grimoire --help
 
 ### `grimoire bind [NAME...]`
 
-Selects skills found in the current Git repository. Names or repository-relative
-paths bypass the picker. `bond` is an alias.
+Adds skills found in the current Git repository. Existing bindings remain. The
+picker includes a `bind all` choice. Names or repository-relative paths bypass
+the picker. `bond` is an alias.
 
-After it updates the binding, the command lists each catalog link it created or
-removed, its target, and the changed binding file.
+After it updates the binding, the command lists each catalog link it created,
+its target, and the changed binding file.
 
 If an older Grimoire catalog-root symlink exists, the command leaves it unchanged.
 Add `--replace-legacy-root` to approve its replacement with managed skill links.
@@ -200,7 +201,7 @@ $ grimoire bind test-skill
 ║                                                                            │
 ║                 the chosen skills now answer from the book                 │
 ║                   their source stays in this repository                    │
-║                  bind again here to change the selection                   │
+║                    bind again here to add more skills                      │
 ║                                                                            │
 ╙───────────────────────── /tmp/opencode/test-repo ──────────────────────────┘
 

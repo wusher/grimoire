@@ -135,7 +135,7 @@ func TestBindRequiresGitAndDiscoversSkillsRecursively(t *testing.T) {
 	}
 }
 
-func TestBindConnectsOnlySelectedSkillsAndUpdatesSelection(t *testing.T) {
+func TestBindConnectsSelectedSkillsAndAddsToSelection(t *testing.T) {
 	paths := testPaths(t)
 	paths.Repo = ""
 	repo := filepath.Join(paths.Home, "repo")
@@ -155,12 +155,10 @@ func TestBindConnectsOnlySelectedSkillsAndUpdatesSelection(t *testing.T) {
 	if result := BindSkills(paths, repo, []Skill{beta}); result.Status != Rebound {
 		t.Fatalf("rebind = %#v", result)
 	}
-	if _, err := os.Lstat(filepath.Join(paths.Binding(), "alpha")); !os.IsNotExist(err) {
-		t.Fatalf("deselected alpha remains: %v", err)
-	}
+	assertLinkTarget(t, filepath.Join(paths.Binding(), "alpha"), alphaDir)
 	assertLinkTarget(t, filepath.Join(paths.Binding(), "beta"), betaDir)
 	catalog, err := LoadCatalog(paths)
-	if err != nil || len(catalog.Skills) != 1 || catalog.Skills[0].Dir != betaDir {
+	if err != nil || len(catalog.Skills) != 2 || catalog.Skills[0].Dir != alphaDir || catalog.Skills[1].Dir != betaDir {
 		t.Fatalf("catalog = %#v, error = %v", catalog, err)
 	}
 	if result := BindSkills(paths, repo, []Skill{beta}); result.Status != Already {
@@ -1320,6 +1318,19 @@ func TestPickerFramesFitLongContentAndShortScreens(t *testing.T) {
 	assertFrameFits(t, lines, small)
 }
 
+func TestBindPickerOffersEverySkillAsOneSelection(t *testing.T) {
+	skills := []Skill{{Name: "alpha", Dir: "/alpha"}, {Name: "beta", Dir: "/beta"}}
+	picker := Picker{SelectAllLabel: "bind all"}
+	rows := picker.rows(NewSkillTree(skills), skills, "", map[string]bool{})
+	if len(rows) != 3 || rows[0].Name != "bind all" || len(rows[0].Skills) != 2 {
+		t.Fatalf("bind picker rows = %#v", rows)
+	}
+	filtered := picker.rows(NewSkillTree(skills), skills, "alpha", map[string]bool{})
+	if len(filtered) != 1 || filtered[0].Name != "alpha" {
+		t.Fatalf("filtered bind picker rows = %#v", filtered)
+	}
+}
+
 func TestAnimationFramesFollowTheCurrentViewport(t *testing.T) {
 	body := []string{strings.Repeat("x", 80), "last"}
 	for _, size := range []viewport{{columns: 80, rows: 24}, {columns: 18, rows: 5}} {
@@ -1451,7 +1462,7 @@ func TestWideHelpUsesACenteredReadingColumn(t *testing.T) {
 	if code := cli.Run(context.Background(), []string{"help"}); code != 0 {
 		t.Fatal(code)
 	}
-	for _, line := range strings.Split(out.String(), "\n") {
+	for line := range strings.SplitSeq(out.String(), "\n") {
 		if strings.Contains(line, "H O W   T O   S A Y   I T") {
 			if at := strings.Index(line, "H"); at < 20 {
 				t.Fatalf("help reading column starts at %d: %q", at, line)

@@ -11,10 +11,11 @@ import (
 )
 
 type Picker struct {
-	In     *os.File
-	Out    *os.File
-	Prompt string
-	Theme  Theme
+	In             *os.File
+	Out            *os.File
+	Prompt         string
+	Theme          Theme
+	SelectAllLabel string
 }
 
 // Pick provides the same interaction as the Ruby tree picker: type to filter,
@@ -43,7 +44,7 @@ func (p Picker) Pick(skills []Skill) ([]Skill, error) {
 	drawn := false
 	lastSize := viewport{}
 	for {
-		visible := tree.Rows(query, open)
+		visible := p.rows(tree, skills, query, open)
 		if cursor >= len(visible) {
 			cursor = max(0, len(visible)-1)
 		}
@@ -134,6 +135,15 @@ func (p Picker) Pick(skills []Skill) ([]Skill, error) {
 		}
 		drawn = false
 	}
+}
+
+func (p Picker) rows(tree SkillTree, skills []Skill, query string, open map[string]bool) []PickerRow {
+	rows := tree.Rows(query, open)
+	if p.SelectAllLabel != "" && query == "" {
+		all := PickerRow{Name: p.SelectAllLabel, Description: fmt.Sprintf("%d skill%s", len(skills), plural(len(skills))), Skills: skills}
+		rows = append([]PickerRow{all}, rows...)
+	}
+	return rows
 }
 
 func (p Picker) draw(skills []PickerRow, query string, cursor int, marked map[string]Skill, size viewport) {

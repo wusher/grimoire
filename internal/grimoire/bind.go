@@ -109,8 +109,8 @@ func BindLibraryWithOptions(paths Paths, cwd string, options BindingOptions) Bin
 	return bindSkills(paths, root, skills, options)
 }
 
-// BindSkills replaces this repository's previous selection and connects the
-// chosen source directories below GRIMOIRE_HOME/skills.
+// BindSkills adds to this repository's selection and connects the chosen
+// source directories below GRIMOIRE_HOME/skills.
 func BindSkills(paths Paths, repository string, chosen []Skill) BindResult {
 	return BindSkillsWithOptions(paths, repository, chosen, BindingOptions{})
 }
@@ -162,6 +162,20 @@ func bindSkills(paths Paths, repository string, chosen []Skill, options BindingO
 	previous := []string{}
 	if found >= 0 {
 		previous = append(previous, updated[found].Skills...)
+		merged := append([]string(nil), previous...)
+		seen := make(map[string]bool, len(previous)+len(selected))
+		for _, rel := range previous {
+			seen[rel] = true
+		}
+		for _, rel := range selected {
+			if !seen[rel] {
+				merged = append(merged, rel)
+				seen[rel] = true
+			}
+		}
+		selected = merged
+		sort.Strings(selected)
+		entry.Skills = selected
 		if equalStrings(updated[found].Skills, selected) {
 			if updated[found].Identity == entry.Identity && updated[found].Revision == entry.Revision {
 				return BindResult{Status: Already, Path: paths.Binding(), Target: root, Message: fmt.Sprintf("%d skill%s already bound", len(selected), plural(len(selected)))}
@@ -180,8 +194,6 @@ func bindSkills(paths Paths, repository string, chosen []Skill, options BindingO
 	word := "bound"
 	if metadataOnly {
 		word = "binding refreshed"
-	} else if status == Rebound {
-		word = "selection updated"
 	}
 	changes := bindingSelectionChanges(paths, root, previous, selected)
 	changes = append(changes, PathChange{Action: "updated binding", Path: paths.BindingsFile()})

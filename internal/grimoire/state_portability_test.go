@@ -132,7 +132,7 @@ func readPortableState(t *testing.T, path string) portabilityState {
 	t.Helper()
 	var body []byte
 	var err error
-	for attempt := 0; attempt < 100; attempt++ {
+	for range 100 {
 		body, err = os.ReadFile(path)
 		if err == nil || runtime.GOOS != "windows" {
 			break
