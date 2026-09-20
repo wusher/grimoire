@@ -3,8 +3,10 @@
 package grimoire
 
 import (
+	"errors"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"golang.org/x/sys/windows"
 )
@@ -18,7 +20,13 @@ func replaceFile(source, destination string) error {
 	if err != nil {
 		return err
 	}
-	return windows.MoveFileEx(from, to, windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH)
+	for attempt := 0; ; attempt++ {
+		err = windows.MoveFileEx(from, to, windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH)
+		if err == nil || attempt == 99 || !errors.Is(err, windows.ERROR_ACCESS_DENIED) && !errors.Is(err, windows.ERROR_SHARING_VIOLATION) {
+			return err
+		}
+		time.Sleep(time.Millisecond)
+	}
 }
 
 func syncParentDirectory(string) error {
