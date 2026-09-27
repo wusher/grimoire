@@ -101,6 +101,39 @@ func (c *CLI) Run(_ context.Context, args []string) int {
 	return code
 }
 
+type helpEntry struct {
+	name, rich, plain string
+}
+
+type helpSection struct {
+	title   string
+	entries []helpEntry
+}
+
+var helpSections = []helpSection{
+	{"the book", []helpEntry{
+		{"toc | list | ls", "Opens the searchable catalog.", "List bound skills."},
+	}},
+	{"the spells", []helpEntry{
+		{"cast [SKILL]", "Installs one bound skill. Without SKILL, opens the tree.", "Install one bound skill; SKILL required."},
+		{"banish [SKILL]", "Removes one skill link. Without SKILL, opens the tree.", "Remove one skill link; SKILL required."},
+		{"volley", "Installs every skill in the book.", "Install all bound skills."},
+		{"effigy [SKILL]", "Zips one bound skill. Without SKILL, opens a picker.", "Write one skill zip file; SKILL required."},
+	}},
+	{"the binding", []helpEntry{
+		{"bind [NAME...]", "Adds skills from this Git repository. Alias: bond.", "Add skills from this Git repository. Alias: bond."},
+		{"unbind [SKILL...]", "Forgets bound skills. Without SKILL, opens the tree. Alias: unbond.", "Unbind skills; SKILL required. Alias: unbond."},
+		{"  --replace-legacy-root", "Approves replacement of an old catalog-root link.", "Approve replacement of an old catalog-root link."},
+		{"index", "Lists bound repositories and every familiar home.", "List repositories and familiar homes."},
+		{"  --refresh", "Refreshes now and repairs managed links.", "Refresh now and repair managed links."},
+		{"familiar [NAME]", "Chooses Global, Claude, OpenCode, or Codex.", "Set global, claude, opencode, or codex."},
+		{"config boring [true|false]", "Turns minimal, non-interactive output on or off.", "Set minimal, non-interactive output."},
+		{"hone", "Repairs the links you already installed.", "Repair installed links."},
+		{"  --dry-run", "Shows the report. Changes nothing.", "Show the report without changes."},
+		{"help | -h | --help", "Shows this page.", "Show this help."},
+	}},
+}
+
 func (c *CLI) help(out io.Writer) {
 	if c.Config.Boring {
 		c.boringHelp(out)
@@ -120,27 +153,13 @@ func (c *CLI) help(out io.Writer) {
 	}
 	help := []string{content.Section("how to say it"), ""}
 	help = append(help, content.Centered(theme.Paint("grimoire", Violet)+" "+theme.Paint("<command> [arguments]", Dim)), "")
-	help = appendHelpBlock(help, content, theme, "the book", [][2]string{
-		{"toc | list | ls", "Opens the searchable catalog."},
-	})
-	help = appendHelpBlock(help, content, theme, "the spells", [][2]string{
-		{"cast [SKILL]", "Installs one bound skill. Without SKILL, opens the tree."},
-		{"banish [SKILL]", "Removes one skill link. Without SKILL, opens the tree."},
-		{"volley", "Installs every skill in the book."},
-		{"effigy [SKILL]", "Zips one bound skill. Without SKILL, opens a picker."},
-	})
-	help = appendHelpBlock(help, content, theme, "the binding", [][2]string{
-		{"bind [NAME...]", "Adds skills from this Git repository. Alias: bond."},
-		{"unbind [SKILL...]", "Forgets bound skills. Without SKILL, opens the tree. Alias: unbond."},
-		{"  --replace-legacy-root", "Approves replacement of an old catalog-root link."},
-		{"index", "Lists bound repositories and every familiar home."},
-		{"  --refresh", "Refreshes now and repairs managed links."},
-		{"familiar [NAME]", "Chooses Global, Claude, OpenCode, or Codex."},
-		{"config boring [true|false]", "Turns minimal, non-interactive output on or off."},
-		{"hone", "Repairs the links you already installed."},
-		{"  --dry-run", "Shows the report. Changes nothing."},
-		{"help | -h | --help", "Shows this page."},
-	})
+	for _, section := range helpSections {
+		rows := make([][2]string, 0, len(section.entries))
+		for _, entry := range section.entries {
+			rows = append(rows, [2]string{entry.name, entry.rich})
+		}
+		help = appendHelpBlock(help, content, theme, section.title, rows)
+	}
 	help = append(help, content.Section("worth knowing"), "")
 	for _, note := range []string{
 		"A bind finds every [skill-name]/SKILL.md below the Git root.",
@@ -175,25 +194,14 @@ func (c *CLI) boringHelp(out io.Writer) {
 	fmt.Fprintln(out, "Usage: grimoire <command> [arguments]")
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "Commands:")
-	for _, line := range []string{
-		"  toc | list | ls             List bound skills.",
-		"  cast [SKILL]                Install one bound skill.",
-		"  banish [SKILL]              Remove one installed skill link.",
-		"  volley                      Install all bound skills.",
-		"  effigy [SKILL]              Write one skill zip file.",
-		"  bind [NAME...]              Add skills from this Git repository. Alias: bond.",
-		"  unbind [SKILL...]           Unbind skills. Alias: unbond.",
-		"    --replace-legacy-root     Approve replacement of an old catalog-root link.",
-		"  index [--refresh]           List repositories and familiar homes; optionally refresh.",
-		"  familiar [NAME]             Set global, claude, opencode, or codex.",
-		"  config boring [true|false]  Set minimal, non-interactive output.",
-		"  hone [--dry-run]            Repair installed links.",
-		"  help | -h | --help          Show this help.",
-	} {
-		if visibleWidth(line) > c.theme(out).columns {
-			c.writeResponsive(out, "", Grey, strings.TrimSpace(line), Grey)
-		} else {
-			fmt.Fprintln(out, line)
+	for _, section := range helpSections {
+		for _, entry := range section.entries {
+			line := fmt.Sprintf("  %-30s %s", strings.TrimSpace(entry.name), entry.plain)
+			if visibleWidth(line) > c.theme(out).columns {
+				c.writeResponsive(out, "", Grey, strings.TrimSpace(line), Grey)
+			} else {
+				fmt.Fprintln(out, line)
+			}
 		}
 	}
 }

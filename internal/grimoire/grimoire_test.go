@@ -2248,3 +2248,21 @@ func TestCLIIndexNeedsABoundRepository(t *testing.T) {
 		t.Fatalf("index error = %s", out.String())
 	}
 }
+
+func TestBoringHelpDoesNotPromisePickers(t *testing.T) {
+	var output bytes.Buffer
+	cli := &CLI{Config: Config{Boring: true}}
+	cli.help(&output)
+	help := output.String()
+	for _, name := range []string{"cast [SKILL]", "banish [SKILL]", "effigy [SKILL]", "unbind [SKILL...]"} {
+		if !strings.Contains(help, name) {
+			t.Errorf("boring help omits %q", name)
+		}
+	}
+	if strings.Contains(help, "opens the tree") || strings.Contains(help, "opens a picker") {
+		t.Errorf("boring help promises an interactive picker:\n%s", help)
+	}
+	if count := strings.Count(help, "SKILL required"); count != 4 {
+		t.Errorf("boring help has %d required-SKILL notices, want 4:\n%s", count, help)
+	}
+}
