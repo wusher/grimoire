@@ -12,11 +12,12 @@ type resourceKindSet map[ResourceKind]bool
 // validateHookRelative enforces the persisted and selector-level hook scope:
 // hooks must be children of the repository's top-level hooks directory.
 func validateHookRelative(rel string) (string, error) {
-	clean := filepath.Clean(filepath.FromSlash(rel))
+	portable := strings.ReplaceAll(rel, "\\", "/")
+	clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(portable)))
 	if !safeRelative(clean) {
 		return "", fmt.Errorf("unsafe hook path %q", rel)
 	}
-	parts := strings.Split(clean, string(filepath.Separator))
+	parts := strings.Split(clean, "/")
 	if len(parts) < 2 || parts[0] != "hooks" {
 		return "", fmt.Errorf("hook path %q must be below the repository's top-level hooks directory", rel)
 	}
@@ -46,7 +47,7 @@ func validateHookSelection(repository, rel string, requireMarker bool) error {
 	}
 
 	current := root
-	for _, component := range strings.Split(clean, string(filepath.Separator)) {
+	for _, component := range strings.Split(clean, "/") {
 		current = filepath.Join(current, component)
 		info, statErr := os.Lstat(current)
 		if os.IsNotExist(statErr) {

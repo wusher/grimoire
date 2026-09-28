@@ -289,6 +289,10 @@ func selectedPaths(root string, chosen []Skill) ([]string, []string, error) {
 			return nil, nil, fmt.Errorf("%s %s is outside repository %s", skill.Kind.Name(), dir, root)
 		}
 		if skill.Kind == HookKind {
+			rel, err = validateHookRelative(rel)
+			if err != nil {
+				return nil, nil, err
+			}
 			if err := validateHookSelection(root, rel, true); err != nil {
 				return nil, nil, err
 			}
@@ -300,8 +304,8 @@ func selectedPaths(root string, chosen []Skill) ([]string, []string, error) {
 			if !exists {
 				return nil, nil, fmt.Errorf("%s does not contain %s", dir, skill.Kind.Marker())
 			}
+			rel = filepath.Clean(rel)
 		}
-		rel = filepath.Clean(rel)
 		key := skill.Kind.Name() + "\x00" + rel
 		if !seen[key] {
 			seen[key] = true
@@ -575,10 +579,15 @@ func validateBindings(bindings []BoundRepository) ([]BoundRepository, error) {
 				return nil, fmt.Errorf("read repository bindings: unsafe skill path %q", selection)
 			}
 		}
-		for _, selection := range bindings[index].Hooks {
-			if err := validateHookSelection(bindings[index].Path, selection, false); err != nil {
+		for selectionIndex, selection := range bindings[index].Hooks {
+			clean, err := validateHookRelative(selection)
+			if err != nil {
 				return nil, fmt.Errorf("read repository bindings: %w", err)
 			}
+			if err := validateHookSelection(bindings[index].Path, clean, false); err != nil {
+				return nil, fmt.Errorf("read repository bindings: %w", err)
+			}
+			bindings[index].Hooks[selectionIndex] = clean
 		}
 		sort.Strings(bindings[index].Skills)
 		sort.Strings(bindings[index].Hooks)

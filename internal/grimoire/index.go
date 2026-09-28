@@ -557,19 +557,23 @@ func repairRepositoryBinding(paths Paths, repository string, renames map[string]
 		for index, oldRel := range *selection.paths {
 			key := filepath.Clean(oldRel)
 			if selection.kind == HookKind {
-				if _, err := validateHookRelative(oldRel); err != nil {
+				clean, err := validateHookRelative(oldRel)
+				if err != nil {
 					return nil, 0, err
 				}
-				key = "hook:" + key
+				oldRel = clean
+				key = "hook:" + clean
 			}
 			newRel, renamed := renames[key]
 			if !renamed {
 				continue
 			}
 			if selection.kind == HookKind {
-				if _, err := validateHookRelative(newRel); err != nil {
+				clean, err := validateHookRelative(newRel)
+				if err != nil {
 					return nil, 0, err
 				}
+				newRel = clean
 				if err := validateHookSelection(repository, oldRel, false); err != nil {
 					return nil, 0, err
 				}
@@ -660,8 +664,9 @@ func skillRenames(repository, before, after string) map[string]string {
 		newRel := filepath.Clean(filepath.FromSlash(filepath.Dir(newName)))
 		valid := safeRelative(oldRel) && safeRelative(newRel)
 		if marker == HookKind.Marker() {
-			_, oldErr := validateHookRelative(oldRel)
-			_, newErr := validateHookRelative(newRel)
+			var oldErr, newErr error
+			oldRel, oldErr = validateHookRelative(oldRel)
+			newRel, newErr = validateHookRelative(newRel)
 			valid = oldErr == nil && newErr == nil
 		}
 		if valid {

@@ -397,6 +397,16 @@ func TestEveryFamiliarHasKindSpecificHomes(t *testing.T) {
 	}
 }
 
+func TestHookRelativePathsUsePortableSeparators(t *testing.T) {
+	clean, err := validateHookRelative(`hooks\group\preflight`)
+	if err != nil || clean != "hooks/group/preflight" {
+		t.Fatalf("clean=%q error=%v", clean, err)
+	}
+	if _, err := validateHookRelative(`outside\preflight`); err == nil {
+		t.Fatal("backslash path outside hooks was accepted")
+	}
+}
+
 func TestSameNameSkillAndHookPackToDistinctArchives(t *testing.T) {
 	paths := testPaths(t)
 	repository := paths.Repo
