@@ -229,13 +229,14 @@ func (c Catalog) Find(name string) (*Skill, error) {
 			return c.resolveSelector(name, matches)
 		}
 	}
-	return c.resolveSelector(name, c.selectorMatches(filepath.Clean(filepath.FromSlash(name)), nil))
+	return c.resolveSelector(name, c.selectorMatches(name, nil))
 }
 
 func (c Catalog) selectorMatches(selector string, kind *ResourceKind) []int {
 	var paths []int
 	for index := range c.Skills {
-		if (kind == nil || c.Skills[index].Kind == *kind) && c.Skills[index].RepoPath() == selector {
+		resource := c.Skills[index]
+		if (kind == nil || resource.Kind == *kind) && resource.RepoPath() == normalizeResourceSelector(resource.Kind, selector) {
 			paths = append(paths, index)
 		}
 	}
@@ -269,12 +270,20 @@ func parseResourceSelector(raw string) (ResourceKind, string, bool) {
 	if prefix, value, ok := strings.Cut(raw, ":"); ok {
 		switch prefix {
 		case "skill":
-			return SkillKind, filepath.Clean(filepath.FromSlash(value)), true
+			return SkillKind, normalizeResourceSelector(SkillKind, value), true
 		case "hook":
-			return HookKind, filepath.Clean(filepath.FromSlash(value)), true
+			return HookKind, normalizeResourceSelector(HookKind, value), true
 		}
 	}
-	return SkillKind, filepath.Clean(filepath.FromSlash(raw)), false
+	return SkillKind, normalizeResourceSelector(SkillKind, raw), false
+}
+
+func normalizeResourceSelector(kind ResourceKind, value string) string {
+	if kind == HookKind {
+		portable := strings.ReplaceAll(value, "\\", "/")
+		return filepath.ToSlash(filepath.Clean(filepath.FromSlash(portable)))
+	}
+	return filepath.Clean(filepath.FromSlash(value))
 }
 
 func (c Catalog) Installed() []Skill {

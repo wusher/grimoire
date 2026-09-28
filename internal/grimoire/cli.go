@@ -809,7 +809,7 @@ func (c *CLI) chooseSkills(args []string, skills []Skill, scope, command string)
 			kind, selector, qualified := parseResourceSelector(wanted)
 			matches := matchResourceSelectors(skills, selector, &kind)
 			if !qualified || len(matches) == 0 {
-				matches = matchResourceSelectors(skills, filepath.Clean(filepath.FromSlash(wanted)), nil)
+				matches = matchResourceSelectors(skills, wanted, nil)
 			}
 			if len(matches) == 0 {
 				return nil, fmt.Errorf("no %s skill called %s (or hook with that selector)", scope, wanted)
@@ -842,7 +842,7 @@ func (c *CLI) chooseSkills(args []string, skills []Skill, scope, command string)
 func matchResourceSelectors(resources []Skill, selector string, kind *ResourceKind) []Skill {
 	var matches []Skill
 	for _, resource := range resources {
-		if (kind == nil || resource.Kind == *kind) && (filepath.Clean(resource.RepoPath()) == selector || resource.Name == selector) {
+		if (kind == nil || resource.Kind == *kind) && (resource.RepoPath() == normalizeResourceSelector(resource.Kind, selector) || resource.Name == selector) {
 			matches = append(matches, resource)
 		}
 	}

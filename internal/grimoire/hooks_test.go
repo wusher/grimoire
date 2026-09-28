@@ -405,6 +405,15 @@ func TestHookRelativePathsUsePortableSeparators(t *testing.T) {
 	if _, err := validateHookRelative(`outside\preflight`); err == nil {
 		t.Fatal("backslash path outside hooks was accepted")
 	}
+	catalog := Catalog{Skills: []Skill{{
+		Kind: HookKind, Name: "preflight", Group: filepath.Join("hooks", "group"),
+	}}}
+	for _, selector := range []string{"hook:hooks/group/preflight", `hook:hooks\group\preflight`} {
+		found, err := catalog.Find(selector)
+		if err != nil || found == nil || found.Name != "preflight" {
+			t.Errorf("Find(%q)=%#v error=%v", selector, found, err)
+		}
+	}
 }
 
 func TestSameNameSkillAndHookPackToDistinctArchives(t *testing.T) {
