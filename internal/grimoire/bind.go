@@ -965,14 +965,17 @@ func readBindingMutationJournal(paths Paths) (bindingMutationJournal, bool, erro
 	if journal.Version == legacyBindingMutationVersion && (bindingsContainHooks(journal.Before) || bindingsContainHooks(journal.After)) {
 		return bindingMutationJournal{}, false, fmt.Errorf("binding mutation journal version 1 cannot contain hook selections")
 	}
-	if err := validateBindingMutationJournal(paths, journal); err != nil {
-		return bindingMutationJournal{}, false, fmt.Errorf("read binding mutation journal: %w", err)
-	}
-	if _, err := validateBindings(cloneBindings(journal.Before)); err != nil {
+	normalizedBefore, err := validateBindings(cloneBindings(journal.Before))
+	if err != nil {
 		return bindingMutationJournal{}, false, fmt.Errorf("read binding mutation journal before state: %w", err)
 	}
-	if _, err := validateBindings(cloneBindings(journal.After)); err != nil {
+	normalizedAfter, err := validateBindings(cloneBindings(journal.After))
+	if err != nil {
 		return bindingMutationJournal{}, false, fmt.Errorf("read binding mutation journal after state: %w", err)
+	}
+	journal.Before, journal.After = normalizedBefore, normalizedAfter
+	if err := validateBindingMutationJournal(paths, journal); err != nil {
+		return bindingMutationJournal{}, false, fmt.Errorf("read binding mutation journal: %w", err)
 	}
 	return journal, true, nil
 }

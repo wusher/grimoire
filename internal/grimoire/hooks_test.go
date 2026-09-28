@@ -693,6 +693,30 @@ func TestPersistedHookPathsAreStrictlyValidated(t *testing.T) {
 		}
 	})
 
+	t.Run("v2 journal canonicalizes portable hook path before recovery", func(t *testing.T) {
+		paths := testPaths(t)
+		paths.Repo = ""
+		repository := filepath.Join(paths.Home, "repo")
+		hook := makeHookIn(t, repository, "", "safe", "hook")
+		journal := bindingMutationJournal{
+			Version: 2,
+			After: []BoundRepository{{
+				Path: repository, Hooks: []string{`hooks\safe`},
+			}},
+		}
+		if err := writeJSONFile(paths.BindingMutationFile(), journal); err != nil {
+			t.Fatal(err)
+		}
+		if err := recoverBindingMutation(paths); err != nil {
+			t.Fatal(err)
+		}
+		assertLinkTarget(t, filepath.Join(paths.ConfigHome, "hooks", "safe"), hook)
+		recovered, err := configuredBindings(paths)
+		if err != nil || len(recovered) != 1 || len(recovered[0].Hooks) != 1 || recovered[0].Hooks[0] != "hooks/safe" {
+			t.Fatalf("recovered=%#v error=%v", recovered, err)
+		}
+	})
+
 	t.Run("legacy array hooks field", func(t *testing.T) {
 		paths := testPaths(t)
 		paths.Repo = ""
