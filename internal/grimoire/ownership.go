@@ -162,11 +162,6 @@ func ownershipProves(state ownershipState, path string) bool {
 	return err == nil && samePath(actual, recorded)
 }
 
-func knownSkillHome(paths Paths, link string) bool {
-	_, ok := knownResourceKind(paths, link)
-	return ok
-}
-
 func knownResourceKind(paths Paths, link string) (ResourceKind, bool) {
 	parent, err := absolute(filepath.Dir(link))
 	if err != nil {

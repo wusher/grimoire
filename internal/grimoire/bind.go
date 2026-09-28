@@ -668,10 +668,6 @@ func safeRelative(path string) bool {
 	return path != "" && !filepath.IsAbs(path) && clean != "." && clean != ".." && !strings.HasPrefix(clean, ".."+string(filepath.Separator))
 }
 
-func bindingSkillMap(bindings []BoundRepository) (map[string]string, error) {
-	return bindingResourceMap(bindings, SkillKind)
-}
-
 func bindingResourceMap(bindings []BoundRepository, kind ResourceKind) (map[string]string, error) {
 	found := map[string]string{}
 	for _, binding := range bindings {

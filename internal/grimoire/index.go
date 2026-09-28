@@ -727,10 +727,6 @@ type installedRename struct {
 	snapshot  symlinkSnapshot
 }
 
-func installedRenames(paths Paths, ownership ownershipState, oldSource, newSource string) ([]installedRename, error) {
-	return installedResourceRenames(paths, ownership, oldSource, newSource, SkillKind)
-}
-
 func installedResourceRenames(paths Paths, ownership ownershipState, oldSource, newSource string, kind ResourceKind) ([]installedRename, error) {
 	var found []installedRename
 	for _, home := range paths.KnownResourceHomes(kind) {
