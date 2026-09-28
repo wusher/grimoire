@@ -84,7 +84,11 @@ func (t SkillTree) Rows(query string, open map[string]bool) []PickerRow {
 }
 
 func skillRow(skill Skill) PickerRow {
-	return PickerRow{Name: skill.Name, Description: skill.Description, Skills: []Skill{skill}}
+	name := skill.Name
+	if skill.Kind == HookKind {
+		name = "hook:" + name
+	}
+	return PickerRow{Name: name, Description: skill.Description, Skills: []Skill{skill}}
 }
 
 func plural(count int) string {

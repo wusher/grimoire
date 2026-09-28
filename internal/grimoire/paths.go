@@ -50,6 +50,11 @@ func envOr(name, fallback string) string {
 
 func (p Paths) Binding() string { return filepath.Join(p.ConfigHome, "skills") }
 
+// CatalogRoot is the centrally managed catalog destination for one resource kind.
+func (p Paths) CatalogRoot(kind ResourceKind) string {
+	return filepath.Join(p.ConfigHome, kind.Plural())
+}
+
 // BindingsFile stores repositories and their explicitly selected skills.
 // Binding is the directory of per-skill symlinks managed from that manifest.
 func (p Paths) BindingsFile() string { return filepath.Join(p.ConfigHome, "bindings.json") }
@@ -91,7 +96,7 @@ func (p Paths) Libraries() ([]string, error) {
 }
 
 func noLibraryBoundError() error {
-	return fmt.Errorf("no skills are bound; go to a Git repository containing */SKILL.md and run grimoire bind")
+	return fmt.Errorf("no skills are bound and no hooks are bound; go to a Git repository containing SKILL.md or hooks/**/HOOK.md and run grimoire bind")
 }
 
 // Library returns the primary bound folder. GRIMOIRE_REPO remains useful for
@@ -153,15 +158,27 @@ func (p Paths) OutputDir() (string, error) {
 }
 
 func (p Paths) SkillsHomes() []string {
+	return p.ResourceHomes(SkillKind)
+}
+
+func (p Paths) HooksHomes() []string { return p.ResourceHomes(HookKind) }
+
+func (p Paths) ResourceHomes(kind ResourceKind) []string {
 	for _, familiar := range familiarMetadata {
 		if familiar.name == p.Familiar {
-			return []string{familiar.skillsHome(p)}
+			return []string{familiar.resourceHome(p, kind)}
 		}
 	}
 	return nil
 }
 
 func (p Paths) KnownSkillsHomes() []string {
+	return p.KnownResourceHomes(SkillKind)
+}
+
+func (p Paths) KnownHooksHomes() []string { return p.KnownResourceHomes(HookKind) }
+
+func (p Paths) KnownResourceHomes(kind ResourceKind) []string {
 	seen := map[string]bool{}
 	found := make([]string, 0, len(familiarMetadata))
 	for _, familiar := range familiarMetadata {
@@ -169,7 +186,7 @@ func (p Paths) KnownSkillsHomes() []string {
 		if root == "" {
 			continue
 		}
-		candidate := filepath.Clean(filepath.Join(root, "skills"))
+		candidate := filepath.Clean(filepath.Join(root, kind.Plural()))
 		if !seen[candidate] {
 			seen[candidate] = true
 			found = append(found, candidate)

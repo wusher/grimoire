@@ -163,12 +163,46 @@ func ownershipProves(state ownershipState, path string) bool {
 }
 
 func knownSkillHome(paths Paths, link string) bool {
-	parent := filepath.Clean(filepath.Dir(link))
-	for _, home := range paths.KnownSkillsHomes() {
-		absoluteHome, err := absolute(home)
-		if err == nil && samePath(parent, absoluteHome) {
-			return true
+	_, ok := knownResourceKind(paths, link)
+	return ok
+}
+
+func knownResourceKind(paths Paths, link string) (ResourceKind, bool) {
+	parent, err := absolute(filepath.Dir(link))
+	if err != nil {
+		return SkillKind, false
+	}
+	lexical := map[ResourceKind]bool{}
+	for _, kind := range []ResourceKind{SkillKind, HookKind} {
+		for _, home := range paths.KnownResourceHomes(kind) {
+			absoluteHome, err := absolute(home)
+			if err == nil && filepath.Clean(parent) == filepath.Clean(absoluteHome) {
+				lexical[kind] = true
+			}
 		}
 	}
-	return false
+	if len(lexical) == 1 {
+		for kind := range lexical {
+			return kind, true
+		}
+	}
+	if len(lexical) > 1 {
+		return SkillKind, false
+	}
+
+	physical := map[ResourceKind]bool{}
+	for _, kind := range []ResourceKind{SkillKind, HookKind} {
+		for _, home := range paths.KnownResourceHomes(kind) {
+			absoluteHome, err := absolute(home)
+			if err == nil && samePath(parent, absoluteHome) {
+				physical[kind] = true
+			}
+		}
+	}
+	if len(physical) == 1 {
+		for kind := range physical {
+			return kind, true
+		}
+	}
+	return SkillKind, false
 }
