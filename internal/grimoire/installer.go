@@ -28,6 +28,9 @@ func Install(paths Paths, skill Skill) InstallResult {
 	if len(links) == 0 {
 		return InstallResult{Status: InstallBlocked, Skill: skill, Message: "no familiar chosen"}
 	}
+	if err := validateInstallSource(skill); err != nil {
+		return InstallResult{Status: InstallBlocked, Skill: skill, Message: err.Error()}
+	}
 	unlock, err := lockBindings(paths)
 	if err != nil {
 		return InstallResult{Status: InstallBlocked, Skill: skill, Message: err.Error()}
@@ -115,6 +118,24 @@ func Install(paths Paths, skill Skill) InstallResult {
 		changes = append(changes, PathChange{Action: "created link", Path: link, Target: skill.Dir})
 	}
 	return InstallResult{Status: Installed, Skill: skill, Message: "installed", Changes: changes}
+}
+
+func validateInstallSource(skill Skill) error {
+	directory, err := os.Stat(skill.Dir)
+	if err != nil {
+		return fmt.Errorf("source skill directory: %w", err)
+	}
+	if !directory.IsDir() {
+		return fmt.Errorf("source skill path is not a directory")
+	}
+	regular, err := regularFileNoFollow(skill.SkillMD())
+	if err != nil {
+		return fmt.Errorf("source skill SKILL.md: %w", err)
+	}
+	if !regular {
+		return fmt.Errorf("source skill SKILL.md is not a regular file")
+	}
+	return nil
 }
 
 const AlreadyStatus InstallStatus = "already"

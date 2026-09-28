@@ -111,6 +111,14 @@ func (s Skill) InstalledAt(link string) bool {
 	return samePath(resolveLink(link, target), s.Dir)
 }
 
+func regularFileNoFollow(path string) (bool, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return false, err
+	}
+	return info.Mode().IsRegular(), nil
+}
+
 // readFrontmatter deliberately reads only top-level YAML scalars. A skill may
 // contain nested hook configuration, but name and description are the only
 // values the catalog needs.

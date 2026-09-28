@@ -5,7 +5,7 @@
 Grimoire finds agent skills in Git repositories, keeps the ones you choose in
 one catalog, and links them into your agent: Claude Code, OpenCode, or Codex.
 
-A skill is any folder that contains a `SKILL.md`. The source folders stay in
+A skill is any folder that contains a regular, non-symlink `SKILL.md`. The source folders stay in
 their repositories. Grimoire only manages selections and symlinks.
 
 ```text
@@ -43,13 +43,15 @@ make install   # installs into GOBIN
 ```mermaid
 flowchart TD
     A["go install github.com/wusher/grimoire@latest"] --> C["cd into a Git repository<br/>that contains SKILL.md folders"]
-    C --> D["grimoire bind<br/>pick the skills to keep"]
-    D --> E["grimoire toc<br/>review the catalog"]
+    C --> D["grimoire bind<br/>pick, bind, and install skills"]
+    D --> J
+    J --> E["grimoire toc<br/>review the catalog"]
     E --> F{next step}
     F --> G["grimoire cast SKILL<br/>install one skill"]
     F --> H["grimoire volley<br/>install every skill"]
-    G --> J["skill linked into<br/>the familiar's skills home"]
+    G --> J
     H --> J
+    J["skill linked into<br/>the familiar's skills home"]
     J --> K["grimoire banish SKILL<br/>remove the links"]
     J --> L["grimoire hone<br/>repair broken links"]
     J --> M["grimoire effigy SKILL<br/>pack a zip"]
@@ -61,9 +63,9 @@ Quick start:
 
 ```sh
 cd ~/code/my-repo            # any Git repository with */SKILL.md folders
-grimoire bind                # fuzzy picker; or pass names to skip it
+grimoire bind                # choose, bind, and install skills
 grimoire toc                 # browse the catalog
-grimoire cast some-skill     # link one skill into your agent
+grimoire cast some-skill     # install or verify one bound skill later
 ```
 
 Rich output is the default. To use short, plain output for scripts or quiet
@@ -80,7 +82,8 @@ path. Use `grimoire index --refresh` to refresh without a question. Run
 
 The selection is stored in `~/.config/grimoire/bindings.json`, so every other
 command works from any directory. Run `bind` again in the same repository to add
-skills. Run `unbind` from any directory to choose skills to remove. Run `index`
+and install more skills, or name a bound skill to retry its installation. Run
+`unbind` from any directory to choose skills to remove. Run `index`
 to list every bound repository. In a terminal, it then asks if you want to
 refresh them. Use `--refresh` to update them without the question.
 
@@ -135,7 +138,7 @@ $ grimoire --help
 ║                                                                            │
 ║   T H E   B I N D I N G ────────────────────────────────────────────────   │
 ║                                                                            │
-║      bind [NAME...]        Adds skills from this Git repository.           │
+║      bind [NAME...]        Adds and installs skills from this repository.  │
 ║                            Alias: bond.                                    │
 ║      unbind [SKILL...]     Forgets bound skills. Without SKILL, opens the  │
 ║                            tree. Alias: unbond.                            │
@@ -150,7 +153,7 @@ $ grimoire --help
 ║                                                                            │
 ║   W O R T H   K N O W I N G ────────────────────────────────────────────   │
 ║                                                                            │
-║      A bind finds every [skill-name]/SKILL.md below the Git root.          │
+║      A bind finds regular [skill-name]/SKILL.md files below the Git root.  │
 ║      Full-screen views redraw after a terminal resize.                     │
 ║      Pass names or paths to skip pickers in scripts.                       │
 ║      Global uses ~/.agents/skills and is the default familiar.             │
@@ -161,12 +164,16 @@ $ grimoire --help
 
 ### `grimoire bind [NAME...]`
 
-Adds skills found in the current Git repository. Existing bindings remain. The
-picker includes a `bind all` choice. Names or repository-relative paths bypass
-the picker. `bond` is an alias.
+Adds and installs skills found in the current Git repository. Existing bindings
+remain. The picker includes a `bind all` choice. Names or repository-relative
+paths bypass the picker; explicit selection is idempotent, so naming an
+already-bound skill is allowed and retries installation. `bond` is an alias.
 
 After it updates the binding, the command lists each catalog link it created,
-its target, and the changed binding file.
+its target, and the changed binding file. It then uses the same safe installation
+behavior as `cast`, linking every selected skill into the current familiar's
+skills home. A blocked destination is reported and makes the command fail; the
+successful binding remains so the installation can be retried.
 
 If an older Grimoire catalog-root symlink exists, the command leaves it unchanged.
 Add `--replace-legacy-root` to approve its replacement with managed skill links.
@@ -206,6 +213,9 @@ $ grimoire bind test-skill
 ╙───────────────────────── /tmp/opencode/test-repo ──────────────────────────┘
 
 /tmp/opencode/test-repo 1 skill bound
+test-skill installed
+created link ~/.agents/skills/test-skill -> /tmp/opencode/test-repo/test-skill
+1 installed · linked into ~/.agents/skills/
 ```
 
 ### `grimoire unbind [SKILL...]`

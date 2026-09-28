@@ -130,7 +130,7 @@ func (c *CLI) help(out io.Writer) {
 		{"effigy [SKILL]", "Zips one bound skill. Without SKILL, opens a picker."},
 	})
 	help = appendHelpBlock(help, content, theme, "the binding", [][2]string{
-		{"bind [NAME...]", "Adds skills from this Git repository. Alias: bond."},
+		{"bind [NAME...]", "Adds and installs skills from this Git repository. Alias: bond."},
 		{"unbind [SKILL...]", "Forgets bound skills. Without SKILL, opens the tree. Alias: unbond."},
 		{"  --replace-legacy-root", "Approves replacement of an old catalog-root link."},
 		{"index", "Lists bound repositories and every familiar home."},
@@ -181,7 +181,7 @@ func (c *CLI) boringHelp(out io.Writer) {
 		"  banish [SKILL]              Remove one installed skill link.",
 		"  volley                      Install all bound skills.",
 		"  effigy [SKILL]              Write one skill zip file.",
-		"  bind [NAME...]              Add skills from this Git repository. Alias: bond.",
+		"  bind [NAME...]              Add and install skills from this Git repository. Alias: bond.",
 		"  unbind [SKILL...]           Unbind skills. Alias: unbond.",
 		"    --replace-legacy-root     Approve replacement of an old catalog-root link.",
 		"  index [--refresh]           List repositories and familiar homes; optionally refresh.",
@@ -389,6 +389,10 @@ func (c *CLI) cast(args []string) (int, error) {
 		c.note("nothing picked")
 		return 0, nil
 	}
+	return c.installSkills(chosen, true)
+}
+
+func (c *CLI) installSkills(chosen []Skill, showArt bool) (int, error) {
 	results := make([]InstallResult, 0, len(chosen))
 	blocked := false
 	for _, skill := range chosen {
@@ -397,7 +401,7 @@ func (c *CLI) cast(args []string) (int, error) {
 		blocked = blocked || result.Status == InstallBlocked
 		c.writeInstallResult(result)
 	}
-	if !blocked && !c.Config.Boring {
+	if showArt && !blocked && !c.Config.Boring {
 		theme := c.theme(c.Out)
 		page := NewPage(theme)
 		if art := drawSigil(wandSigil, page, theme, Violet); len(art) > 0 {
@@ -407,6 +411,9 @@ func (c *CLI) cast(args []string) (int, error) {
 	}
 	if !c.Config.Boring {
 		c.installSummary(results, "linked into")
+	}
+	if blocked && !showArt {
+		c.note("binding saved; fix the blocked destination, then rerun grimoire bind to retry installation")
 	}
 	if blocked {
 		return 1, nil
@@ -779,7 +786,13 @@ func (c *CLI) bind(args []string) (int, error) {
 		return 0, nil
 	}
 	result := BindSkillsWithOptions(c.Paths, root, chosen, options)
-	return c.showBindingResults("bind", "the book takes your hand", []BindResult{result}, !result.OK())
+	if !result.OK() {
+		return c.showBindingResults("bind", "the book takes your hand", []BindResult{result}, true)
+	}
+	if _, err := c.showBindingResults("bind", "the book takes your hand", []BindResult{result}, false); err != nil {
+		return 1, err
+	}
+	return c.installSkills(chosen, false)
 }
 
 func (c *CLI) chooseSkills(args []string, skills []Skill, scope, command string) ([]Skill, error) {

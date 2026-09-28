@@ -57,6 +57,13 @@ func DiscoverRepositorySkills(cwd string, homes []string) (string, []Skill, erro
 		if entry.IsDir() || entry.Name() != "SKILL.md" {
 			return nil
 		}
+		regular, err := regularFileNoFollow(path)
+		if err != nil {
+			return err
+		}
+		if !regular {
+			return nil
+		}
 		dir := filepath.Dir(path)
 		if !samePath(dir, root) && !seen[dir] {
 			seen[dir] = true
@@ -91,8 +98,9 @@ func gitRoot(cwd string) (string, error) {
 }
 
 // BindLibrary is the non-interactive API: it discovers and binds every skill
-// in the repository containing cwd. The CLI calls BindSkills after its picker
-// has narrowed this list.
+// in the repository containing cwd. It updates only the catalog; installation
+// is a separate Install call. The CLI's compound bind command calls BindSkills
+// after its picker has narrowed this list, then installs the selection.
 func BindLibrary(paths Paths, cwd string) BindResult {
 	return BindLibraryWithOptions(paths, cwd, BindingOptions{})
 }
@@ -110,7 +118,8 @@ func BindLibraryWithOptions(paths Paths, cwd string, options BindingOptions) Bin
 }
 
 // BindSkills adds to this repository's selection and connects the chosen
-// source directories below GRIMOIRE_HOME/skills.
+// source directories below GRIMOIRE_HOME/skills. It does not install them into
+// a familiar home; callers that want the CLI's compound behavior call Install.
 func BindSkills(paths Paths, repository string, chosen []Skill) BindResult {
 	return BindSkillsWithOptions(paths, repository, chosen, BindingOptions{})
 }
@@ -233,9 +242,9 @@ func selectedPaths(root string, chosen []Skill) ([]string, error) {
 		if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			return nil, fmt.Errorf("skill %s is outside repository %s", dir, root)
 		}
-		info, err := os.Stat(filepath.Join(dir, "SKILL.md"))
-		if err != nil || info.IsDir() {
-			return nil, fmt.Errorf("%s does not contain SKILL.md", dir)
+		regular, err := regularFileNoFollow(filepath.Join(dir, "SKILL.md"))
+		if err != nil || !regular {
+			return nil, fmt.Errorf("%s does not contain a regular SKILL.md file", dir)
 		}
 		rel = filepath.Clean(rel)
 		if !seen[rel] {
@@ -514,7 +523,11 @@ func findSkillDirs(root string) ([]string, error) {
 		if entry.IsDir() && entry.Name() == ".git" {
 			return filepath.SkipDir
 		}
-		if !entry.IsDir() && entry.Name() == "SKILL.md" && !samePath(filepath.Dir(path), root) {
+		regular, err := regularFileNoFollow(path)
+		if err != nil {
+			return err
+		}
+		if regular && entry.Name() == "SKILL.md" && !samePath(filepath.Dir(path), root) {
 			found = append(found, filepath.Dir(path))
 		}
 		return nil

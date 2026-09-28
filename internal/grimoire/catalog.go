@@ -147,8 +147,9 @@ func relative(root, path string) string {
 }
 
 func (c Catalog) Find(name string) (*Skill, error) {
+	selector := filepath.Clean(filepath.FromSlash(name))
 	for index := range c.Skills {
-		if c.Skills[index].RepoPath() == name {
+		if filepath.Clean(c.Skills[index].RepoPath()) == selector {
 			return &c.Skills[index], nil
 		}
 	}
