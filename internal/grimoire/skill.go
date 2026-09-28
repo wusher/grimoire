@@ -73,7 +73,11 @@ func (s Skill) RepoPath() string {
 	if s.Group == "" {
 		return s.Name
 	}
-	return filepath.Join(s.Group, s.Name)
+	path := filepath.Join(s.Group, s.Name)
+	if s.Kind == HookKind {
+		return filepath.ToSlash(path)
+	}
+	return path
 }
 
 // DisplayGroup hides the conventional skills/ or hooks/ container while preserving any

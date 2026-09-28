@@ -370,7 +370,7 @@ func TestHookRefreshRenameRepairsCatalogAndInstalledLinks(t *testing.T) {
 	gitCommitAll(t, repository, "after")
 	after := repositoryRevision(repository)
 	renamed := skillRenames(repository, before, after)
-	if renamed["hook:hooks/before"] != filepath.Join("hooks", "after") {
+	if renamed["hook:hooks/before"] != "hooks/after" {
 		t.Fatalf("hook renames=%#v", renamed)
 	}
 	changes, repaired, err := repairRepositoryBinding(paths, repository, renamed, after)
