@@ -5,6 +5,7 @@ go 1.24.0
 require golang.org/x/term v0.38.0
 
 require (
+	github.com/creack/pty v1.1.24
 	github.com/mattn/go-runewidth v0.0.19
 	golang.org/x/sys v0.39.0
 )

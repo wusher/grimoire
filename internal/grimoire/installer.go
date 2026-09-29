@@ -28,6 +28,9 @@ func Install(paths Paths, skill Skill) InstallResult {
 	if len(links) == 0 {
 		return InstallResult{Status: InstallBlocked, Skill: skill, Message: "no familiar chosen"}
 	}
+	if err := validateInstallSource(skill); err != nil {
+		return InstallResult{Status: InstallBlocked, Skill: skill, Message: err.Error()}
+	}
 	unlock, err := lockBindings(paths)
 	if err != nil {
 		return InstallResult{Status: InstallBlocked, Skill: skill, Message: err.Error()}
@@ -115,6 +118,29 @@ func Install(paths Paths, skill Skill) InstallResult {
 		changes = append(changes, PathChange{Action: "created link", Path: link, Target: skill.Dir})
 	}
 	return InstallResult{Status: Installed, Skill: skill, Message: "installed", Changes: changes}
+}
+
+func validateInstallSource(skill Skill) error {
+	if skill.Kind == HookKind {
+		if err := validateHookResource(skill, true); err != nil {
+			return fmt.Errorf("source hook: %w", err)
+		}
+	}
+	directory, err := os.Stat(skill.Dir)
+	if err != nil {
+		return fmt.Errorf("source %s directory: %w", skill.Kind.Name(), err)
+	}
+	if !directory.IsDir() {
+		return fmt.Errorf("source %s path is not a directory", skill.Kind.Name())
+	}
+	present, err := resourceMarker(skill.MarkerPath(), skill.Kind)
+	if err != nil {
+		return fmt.Errorf("source %s %s: %w", skill.Kind.Name(), skill.Kind.Marker(), err)
+	}
+	if !present {
+		return fmt.Errorf("source %s %s is missing", skill.Kind.Name(), skill.Kind.Marker())
+	}
+	return nil
 }
 
 const AlreadyStatus InstallStatus = "already"
