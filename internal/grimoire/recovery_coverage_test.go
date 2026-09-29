@@ -3,6 +3,7 @@ package grimoire
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -131,10 +132,22 @@ func TestConfiguredOwnershipRejectsUnsafePersistedState(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			paths := testPaths(t)
+			body := test.body
+			if test.name == "duplicate cleaned path" {
+				path := filepath.Join(paths.Home, "links", "alpha")
+				encoded, marshalErr := json.Marshal(ownershipState{Version: ownershipVersion, Links: []ownedLink{
+					{Path: path, Target: filepath.Join(paths.Home, "one")},
+					{Path: path, Target: filepath.Join(paths.Home, "two")},
+				}})
+				if marshalErr != nil {
+					t.Fatal(marshalErr)
+				}
+				body = string(encoded)
+			}
 			if err := os.MkdirAll(paths.ConfigHome, 0o755); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile(paths.OwnershipFile(), []byte(test.body), 0o644); err != nil {
+			if err := os.WriteFile(paths.OwnershipFile(), []byte(body), 0o644); err != nil {
 				t.Fatal(err)
 			}
 			_, err := configuredOwnership(paths)

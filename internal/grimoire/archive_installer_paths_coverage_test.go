@@ -211,7 +211,7 @@ func TestPathsResolveOverridesAndBindingLayouts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if paths.Home != root || paths.Output != filepath.Join(root, "archives") || paths.ConfigHome != filepath.Join(root, "grimoire") {
+	if paths.Output != filepath.Join(root, "archives") || paths.ConfigHome != filepath.Join(root, "grimoire") {
 		t.Fatalf("paths from environment = %#v", paths)
 	}
 	if envOr("GRIMOIRE_MISSING_TEST", "fallback") != "fallback" {

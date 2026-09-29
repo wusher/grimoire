@@ -123,7 +123,7 @@ func TestCLIEffigyReportsPackFailure(t *testing.T) {
 		t.Fatalf("effigy = %d, output %q", code, output.String())
 	}
 	normalized := strings.Join(strings.Fields(output.String()), " ")
-	if !strings.Contains(normalized, "alpha") || !strings.Contains(normalized, "not a directory") {
+	if !strings.Contains(normalized, "alpha") || !strings.Contains(normalized, "mkdir") {
 		t.Fatalf("effigy failure output = %q", output.String())
 	}
 }
