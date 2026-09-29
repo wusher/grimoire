@@ -28,10 +28,11 @@ func TestPlanBindingCatalogRejectsUnsafeRootsAndSelections(t *testing.T) {
 	if err := createSymlink(first, foreignRoot, true); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := planBindingCatalog(paths, nil, nil, false, false, nil); err == nil || !strings.Contains(err.Error(), "foreign symlink") {
+	selection := []BoundRepository{{Path: first, Skills: []string{"alpha"}}}
+	if _, err := planBindingCatalog(paths, nil, selection, false, false, nil); err == nil || !strings.Contains(err.Error(), "foreign symlink") {
 		t.Fatalf("foreign root = %v", err)
 	}
-	if _, err := planBindingCatalog(paths, nil, nil, true, false, nil); err == nil || !strings.Contains(err.Error(), "explicit approval") {
+	if _, err := planBindingCatalog(paths, nil, selection, true, false, nil); err == nil || !strings.Contains(err.Error(), "explicit approval") {
 		t.Fatalf("unapproved legacy root = %v", err)
 	}
 
@@ -42,7 +43,8 @@ func TestPlanBindingCatalogRejectsUnsafeRootsAndSelections(t *testing.T) {
 	if err := os.WriteFile(paths.Binding(), []byte("foreign"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := planBindingCatalog(paths, nil, nil, false, false, nil); err == nil || !strings.Contains(err.Error(), "real file") {
+	selection = []BoundRepository{{Path: filepath.Join(paths.Home, "repository"), Skills: []string{"alpha"}}}
+	if _, err := planBindingCatalog(paths, nil, selection, false, false, nil); err == nil || !strings.Contains(err.Error(), "real file") {
 		t.Fatalf("real catalog root = %v", err)
 	}
 }
@@ -160,7 +162,7 @@ func TestBindingCatalogDirectoryPlanningAndVerificationFailures(t *testing.T) {
 	if err != nil || len(directories) != 2 {
 		t.Fatalf("directories = %#v, %v", directories, err)
 	}
-	plan := &bindingCatalogPlan{root: planned, directories: directories}
+	plan := &bindingCatalogPlan{root: planned, directories: directories, active: true}
 	if err := os.MkdirAll(directories[0], 0o755); err != nil {
 		t.Fatal(err)
 	}

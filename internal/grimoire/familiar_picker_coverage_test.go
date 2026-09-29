@@ -91,12 +91,12 @@ func TestPickerRejectsNonTerminalsAndExercisesStateHelpers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer input.Close()
+	defer func() { _ = input.Close() }()
 	output, err := os.CreateTemp(t.TempDir(), "output")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer output.Close()
+	defer func() { _ = output.Close() }()
 	if _, err := (Picker{In: input, Out: output}).Pick(nil); err == nil || !strings.Contains(err.Error(), "terminal") {
 		t.Fatalf("picker non-terminal error = %v", err)
 	}
@@ -110,7 +110,7 @@ func TestPickerRejectsNonTerminalsAndExercisesStateHelpers(t *testing.T) {
 	if markedAll(row, marked) || markedSome(row, marked) {
 		t.Fatal("empty marked state reported a selection")
 	}
-	marked[skill.Dir] = skill
+	marked[skill.identity()] = skill
 	if !markedAll(row, marked) || !markedSome(row, marked) {
 		t.Fatal("marked state did not report a selection")
 	}
@@ -157,7 +157,7 @@ func TestReadKeyRecognizesControlNavigationAndUTF8(t *testing.T) {
 			if err := write.Close(); err != nil {
 				t.Fatal(err)
 			}
-			defer read.Close()
+			defer func() { _ = read.Close() }()
 			got, err := readKey(bufio.NewReader(read), read)
 			if err != nil || got != test.want {
 				t.Fatalf("readKey(%q) = %q, %v; want %q", test.input, got, err, test.want)

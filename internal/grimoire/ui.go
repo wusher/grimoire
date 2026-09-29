@@ -86,6 +86,7 @@ var icons = map[string]string{
 	"plus":   "\uf067",
 	"cross":  "\uf00d",
 	"paw":    "\uf1b0",
+	"hook":   "\U000f06e6",
 }
 
 func (t Theme) Tag(name string, color Color) string {

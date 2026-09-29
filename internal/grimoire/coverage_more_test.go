@@ -75,7 +75,7 @@ func TestCoverageCatalogPathsAndSymlinkPlans(t *testing.T) {
 	two := makeSkillIn(t, root, "two", "alpha", "Second")
 	deep := makeSkillIn(t, root, "one/deep/nested", "gamma", "Deep")
 	catalog := Catalog{Root: root, Homes: paths.SkillsHomes(), Clashes: map[string][]Skill{}}
-	if err := catalog.walk(root, root, 0); err != nil {
+	if err := catalog.walk(root, root, 0, SkillKind, paths.SkillsHomes()); err != nil {
 		t.Fatal(err)
 	}
 	catalog.finish()

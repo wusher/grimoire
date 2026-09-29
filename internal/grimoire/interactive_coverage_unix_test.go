@@ -5,6 +5,7 @@ package grimoire
 import (
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -271,4 +272,66 @@ func TestCLIInteractiveSkillSelectionAndCatalog(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
+}
+
+func TestCatalogBrowserNavigationAndRichBindingAnimation(t *testing.T) {
+	skills := []Skill{{Name: "alpha", Dir: "/skills/alpha"}, {Name: "beta", Dir: "/skills/beta"}}
+	withTerminalInput(t, "\x1b[B\x1b[Aa\x7f\r", func(terminal *os.File) {
+		browser := CatalogBrowser{In: terminal, Out: terminal, Theme: Theme{columns: 100}, Familiar: "global"}
+		if err := browser.Browse(skills); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	withTerminalInput(t, "\r", func(terminal *os.File) {
+		paths := testPaths(t)
+		cli := &CLI{In: terminal, Out: terminal, Err: terminal, Paths: paths}
+		result := BindResult{Status: Bound, Path: paths.Home, Target: filepath.Join(paths.Home, "repository"), Message: "1 skill bound"}
+		if code, err := cli.showBindingResults("bind", "the book takes your hand", []BindResult{result}, false); err != nil || code != 0 {
+			t.Fatalf("binding results = %d, %v", code, err)
+		}
+	})
+}
+
+func TestConfirmIndexRefreshAcceptsYesAndDefaultsToNo(t *testing.T) {
+	for _, test := range []struct {
+		input string
+		want  bool
+	}{{"yes\n", true}, {"no\n", false}} {
+		withTerminalInput(t, test.input, func(terminal *os.File) {
+			cli := &CLI{In: terminal, Out: terminal}
+			got, err := cli.confirmIndexRefresh()
+			if err != nil || got != test.want {
+				t.Fatalf("confirm refresh = %t, %v; want %t", got, err, test.want)
+			}
+		})
+	}
+}
+
+func TestRelativePathResolutionFailsWhenWorkingDirectoryDisappears(t *testing.T) {
+	original, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent := t.TempDir()
+	working := parent + "/working"
+	if err := os.Mkdir(working, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(working); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(working); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(original) }()
+	if _, err := absolute("relative"); err == nil {
+		t.Fatal("absolute path unexpectedly resolved")
+	}
+	if _, err := (Paths{Repo: "relative"}).Libraries(); err == nil {
+		t.Fatal("relative library unexpectedly resolved")
+	}
+	if _, err := (Paths{Repo: "relative"}).SkillsRoots(); err == nil {
+		t.Fatal("relative skills root unexpectedly resolved")
+	}
 }

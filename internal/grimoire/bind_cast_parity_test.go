@@ -156,7 +156,7 @@ func TestInstallRejectsInvalidSourcesBeforeMutation(t *testing.T) {
 					t.Fatal(err)
 				}
 			},
-			want: "not a regular file",
+			want: "directory, not a skill marker",
 		},
 	}
 	for _, test := range tests {
@@ -181,7 +181,7 @@ func TestBindAndBondRequireAFamiliar(t *testing.T) {
 	}
 }
 
-func TestSymlinkedSkillManifestIsNeitherDiscoveredBoundNorInstalled(t *testing.T) {
+func TestSymlinkedSkillManifestRetainsLegacyCompatibility(t *testing.T) {
 	paths := testPaths(t)
 	paths.Repo = ""
 	repo := filepath.Join(paths.Home, "repo")
@@ -202,18 +202,16 @@ func TestSymlinkedSkillManifestIsNeitherDiscoveredBoundNorInstalled(t *testing.T
 	if err != nil || !samePath(root, repo) {
 		t.Fatalf("discovery root = %q, error = %v", root, err)
 	}
-	if len(discovered) != 0 {
-		t.Fatalf("symlinked manifest was discovered: %#v", discovered)
+	if len(discovered) != 1 {
+		t.Fatalf("symlinked manifest was not discovered: %#v", discovered)
 	}
 	skill := ReadSkill(dir, repo, paths.SkillsHomes())
-	if result := BindSkills(paths, repo, []Skill{skill}); result.Status != Blocked || !strings.Contains(result.Message, "regular SKILL.md") {
+	if result := BindSkills(paths, repo, []Skill{skill}); !result.OK() {
 		t.Fatalf("bind symlinked manifest = %#v", result)
 	}
 	result := Install(paths, skill)
-	if result.Status != InstallBlocked || !strings.Contains(result.Message, "not a regular file") {
+	if result.Status != Installed {
 		t.Fatalf("install symlinked manifest = %#v", result)
 	}
-	if _, err := os.Lstat(filepath.Join(paths.ClaudeHome, "skills", "linked")); !os.IsNotExist(err) {
-		t.Fatalf("install created a link for the invalid skill: %v", err)
-	}
+	assertLinkTarget(t, filepath.Join(paths.ClaudeHome, "skills", "linked"), dir)
 }

@@ -29,7 +29,7 @@ func TestPackStoresSymlinksWithoutFollowingThem(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer archive.Close()
+	defer func() { _ = archive.Close() }()
 	for _, file := range archive.File {
 		if file.Name != "alpha/reference" {
 			continue

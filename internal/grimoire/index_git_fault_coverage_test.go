@@ -35,6 +35,13 @@ case "$*" in
       echo aaaaaaaaaaaaaaaa
     fi
     ;;
+  *"rev-parse @{u}^{commit}"*)
+    if [ "$SCENARIO" = "current" ]; then
+      echo aaaaaaaaaaaaaaaa
+    else
+      echo bbbbbbbbbbbbbbbb
+    fi
+    ;;
   *"fetch"*)
     [ "$SCENARIO" = "fetch_fail" ] && exit 1
     : > "$STATE_DIR/fetched"
@@ -102,11 +109,26 @@ func TestRepositoryIssueAndIndexHelpersCoverMissingAndBrokenLinks(t *testing.T) 
 	if err := createSymlink(filepath.Join(paths.Home, "wrong"), filepath.Join(paths.Binding(), "broken"), true); err != nil {
 		t.Fatal(err)
 	}
-	missing, brokenCount := repositoryIssues(paths, bindings)
+	missing, brokenCount, err := repositoryIssues(paths, bindings)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if missing != 1 || brokenCount != 1 {
 		t.Fatalf("issues = %d missing, %d broken", missing, brokenCount)
 	}
-	if !skillFileExists(valid) || !skillFileExists(broken) || skillFileExists(filepath.Join(repository, "missing")) {
+	validExists, err := resourceFileExists(valid, SkillKind)
+	if err != nil {
+		t.Fatal(err)
+	}
+	brokenExists, err := resourceFileExists(broken, SkillKind)
+	if err != nil {
+		t.Fatal(err)
+	}
+	missingExists, err := resourceFileExists(filepath.Join(repository, "missing"), SkillKind)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !validExists || !brokenExists || missingExists {
 		t.Fatal("skill existence mismatch")
 	}
 

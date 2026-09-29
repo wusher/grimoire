@@ -2,11 +2,27 @@
 
 ![Grimoire logo](assets/logo.png)
 
-Grimoire finds agent skills in Git repositories, keeps the ones you choose in
-one catalog, and links them into your agent: Claude Code, OpenCode, or Codex.
+Grimoire finds agent skills and hook folders in Git repositories, keeps the
+ones you choose in one catalog, and links them into familiar-specific storage
+for Claude Code, OpenCode, Codex, or the shared global location.
 
-A skill is any folder that contains a regular, non-symlink `SKILL.md`. The source folders stay in
-their repositories. Grimoire only manages selections and symlinks.
+A skill is any folder that contains a `SKILL.md`. The source folders stay in
+their repositories. A hook is a folder below the repository's top-level
+`hooks/` directory containing a regular, non-symlink `HOOK.md`; nested groups
+below `hooks/` are supported. Grimoire only manages selections and symlinks.
+
+`HOOK.md` and each familiar's `hooks/` folder are **Grimoire storage
+conventions**, not a portable agent hook standard. Beyond requiring a regular
+`HOOK.md` marker, Grimoire does not validate hook contents or compatibility,
+register hooks, activate hooks, or execute hooks. If you separately activate a
+linked hook through an agent or another tool, that hook can execute arbitrary
+code with that tool's permissions. Review hook source before activating it.
+
+Binding the first hook is a one-way state-format upgrade: `bindings.json` moves
+to the version 2 envelope and remains version 2 even if every hook is later
+unbound. Grimoire releases predating hook support, including v0.0.3, cannot read
+that hook-bearing/upgraded state. Continue with a hook-aware release after the
+upgrade (and back up `bindings.json` before downgrading manually).
 
 ```text
 ⠀⠀⠀⠀⣀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
@@ -42,30 +58,30 @@ make install   # installs into GOBIN
 
 ```mermaid
 flowchart TD
-    A["go install github.com/wusher/grimoire@latest"] --> C["cd into a Git repository<br/>that contains SKILL.md folders"]
-    C --> D["grimoire bind<br/>pick, bind, and install skills"]
+    A["go install github.com/wusher/grimoire@latest"] --> C["cd into a Git repository<br/>with SKILL.md or hooks/**/HOOK.md"]
+    C --> D["grimoire bind<br/>pick, bind, and install resources"]
     D --> J
     J --> E["grimoire toc<br/>review the catalog"]
     E --> F{next step}
-    F --> G["grimoire cast SKILL<br/>install one skill"]
-    F --> H["grimoire volley<br/>install every skill"]
+    F --> G["grimoire cast RESOURCE<br/>link one skill or hook"]
+    F --> H["grimoire volley<br/>link every resource"]
     G --> J
     H --> J
-    J["skill linked into<br/>the familiar's skills home"]
-    J --> K["grimoire banish SKILL<br/>remove the links"]
+    J["resource linked into<br/>the familiar's kind-specific home"]
+    J --> K["grimoire banish RESOURCE<br/>remove the links"]
     J --> L["grimoire hone<br/>repair broken links"]
-    J --> M["grimoire effigy SKILL<br/>pack a zip"]
-    E -.-> N["grimoire unbind<br/>pick bound skills to forget"]
+    J --> M["grimoire effigy RESOURCE<br/>pack a zip"]
+    E -.-> N["grimoire unbind<br/>pick bound resources to forget"]
     E -.-> O["grimoire index --refresh<br/>safely pull every bound repository"]
 ```
 
 Quick start:
 
 ```sh
-cd ~/code/my-repo            # any Git repository with */SKILL.md folders
-grimoire bind                # choose, bind, and install skills
+cd ~/code/my-repo            # a Git repository with SKILL.md or hooks/**/HOOK.md
+grimoire bind                # choose, bind, and install resources
 grimoire toc                 # browse the catalog
-grimoire cast some-skill     # install or verify one bound skill later
+grimoire cast some-skill     # link one skill into your agent
 ```
 
 Rich output is the default. To use short, plain output for scripts or quiet
@@ -76,14 +92,15 @@ grimoire config boring true
 ```
 
 Boring mode has no color, icons, art, animation, decorative pages, or
-full-screen views. Commands that usually open a picker require a skill name or
-path. Use `grimoire index --refresh` to refresh without a question. Run
+full-screen views. Commands that usually open a picker require a resource name,
+path, or qualified selector. Use `grimoire index --refresh` to refresh without
+a question. Run
 `grimoire config boring false` to restore rich output.
 
 The selection is stored in `~/.config/grimoire/bindings.json`, so every other
 command works from any directory. Run `bind` again in the same repository to add
-and install more skills, or name a bound skill to retry its installation. Run
-`unbind` from any directory to choose skills to remove. Run `index`
+and install more resources, or name a bound resource to retry its installation.
+Run `unbind` from any directory to choose resources to remove. Run `index`
 to list every bound repository. In a terminal, it then asks if you want to
 refresh them. Use `--refresh` to update them without the question.
 
@@ -99,7 +116,7 @@ $ grimoire --help
 ╓──────────────────────────────────── ❦ ─────────────────────────────────────┐
 ║                                                                            │
 ║                              G R I M O I R E                               │
-║                     ✦ keeps agent skills in one book ✦                     │
+║                    ✦ keeps agent resources in one book ✦                   │
 ║                                                                            │
 ║            ──────────────────────── ✦ ────────────────────────             │
 ║                                                                            │
@@ -128,19 +145,19 @@ $ grimoire --help
 ║                                                                            │
 ║   T H E   S P E L L S ──────────────────────────────────────────────────   │
 ║                                                                            │
-║      cast [SKILL]          Installs one bound skill. Without SKILL, opens  │
+║      cast [RESOURCE]       Links one bound skill or hook. Without one,     │
+║                            opens the tree.                                 │
+║      banish [RESOURCE]     Removes one linked resource. Without one, opens │
 ║                            the tree.                                       │
-║      banish [SKILL]        Removes one skill link. Without SKILL, opens    │
-║                            the tree.                                       │
-║      volley                Installs every skill in the book.               │
-║      effigy [SKILL]        Zips one bound skill. Without SKILL, opens a    │
+║      volley                Links every skill and hook in the book.         │
+║      effigy [RESOURCE]     Zips one bound resource. Without one, opens a   │
 ║                            picker.                                         │
 ║                                                                            │
 ║   T H E   B I N D I N G ────────────────────────────────────────────────   │
 ║                                                                            │
-║      bind [NAME...]        Adds and installs skills from this repository.  │
-║                            Alias: bond.                                    │
-║      unbind [SKILL...]     Forgets bound skills. Without SKILL, opens the  │
+║      bind [SELECTOR...]    Adds and installs resources from this           │
+║                            repository. Alias: bond.                        │
+║      unbind [SELECTOR...]  Forgets bound resources. Without one, opens the │
 ║                            tree. Alias: unbond.                            │
 ║      index                 Lists bound repositories and familiar homes.   │
 ║        --refresh           Refreshes now and repairs managed links.        │
@@ -153,27 +170,34 @@ $ grimoire --help
 ║                                                                            │
 ║   W O R T H   K N O W I N G ────────────────────────────────────────────   │
 ║                                                                            │
-║      A bind finds regular [skill-name]/SKILL.md files below the Git root.  │
+║      Bind finds SKILL.md anywhere and HOOK.md below top-level hooks/.      │
 ║      Full-screen views redraw after a terminal resize.                     │
 ║      Pass names or paths to skip pickers in scripts.                       │
-║      Global uses ~/.agents/skills and is the default familiar.             │
+║      Global uses ~/.agents/skills and ~/.agents/hooks by default.          │
 ║      NO_COLOR=1 turns color off. GRIMOIRE_ICONS=0 turns icons off.         │
 ║                                                                            │
 ╙────────────────────── grimoire toc  ·  grimoire cast ──────────────────────┘
 ```
 
-### `grimoire bind [NAME...]`
+### `grimoire bind [SELECTOR...]`
 
-Adds and installs skills found in the current Git repository. Existing bindings
-remain. The picker includes a `bind all` choice. Names or repository-relative
-paths bypass the picker; explicit selection is idempotent, so naming an
-already-bound skill is allowed and retries installation. `bond` is an alias.
+Adds and installs skills and hooks found in the current Git repository. Skills are found
+recursively anywhere below the Git root; hooks are found recursively only below
+its top-level `hooks/` container. Existing bindings remain. The picker includes
+a `bind all` choice. Names or repository-relative paths bypass the picker;
+explicit selection is idempotent, so naming an already-bound resource retries
+installation. `bond` is an alias.
+
+Bare names and paths remain valid when unique. Use `skill:NAME`, `hook:NAME`,
+`skill:path/to/name`, or `hook:hooks/group/name` to resolve ambiguity. A skill
+and hook may share a basename because their catalogs and install roots differ;
+two selected resources of the same kind may not share a basename.
 
 After it updates the binding, the command lists each catalog link it created,
 its target, and the changed binding file. It then uses the same safe installation
-behavior as `cast`, linking every selected skill into the current familiar's
-skills home. A blocked destination is reported and makes the command fail; the
-successful binding remains so the installation can be retried.
+behavior as `cast`, linking every selected resource into the current familiar's
+kind-specific home. A blocked destination is reported and makes the command
+fail; the successful binding remains so installation can be retried.
 
 If an older Grimoire catalog-root symlink exists, the command leaves it unchanged.
 Add `--replace-legacy-root` to approve its replacement with managed skill links.
@@ -206,9 +230,9 @@ $ grimoire bind test-skill
 ║                ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠀⠀⠈⠟⠏⢿⢿⢿⢧⠘⣿⢿⣿⡟⠿⡇⠸⣿⠿⢻⡟⠛⠈⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀                 │
 ║                ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠀⠀⠘⠀⠀⠈⠈⠁⠀⠃⠀⠀⠀⠀⠃⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀                 │
 ║                                                                            │
-║                 the chosen skills now answer from the book                 │
+║                the chosen resources now answer from the book               │
 ║                   their source stays in this repository                    │
-║                    bind again here to add more skills                      │
+║                  bind again here to add more resources                     │
 ║                                                                            │
 ╙───────────────────────── /tmp/opencode/test-repo ──────────────────────────┘
 
@@ -218,10 +242,11 @@ created link ~/.agents/skills/test-skill -> /tmp/opencode/test-repo/test-skill
 1 installed · linked into ~/.agents/skills/
 ```
 
-### `grimoire unbind [SKILL...]`
+### `grimoire unbind [SELECTOR...]`
 
-Removes selected skills from the catalog. Without arguments, it opens a picker
-that contains every bound skill, so the command works from any directory. Names
+Removes selected skills or hooks from the catalog. Without arguments, it opens
+a picker that contains every bound resource, so the command works from any
+directory. Names
 or repository-relative paths bypass the picker. Source folders and installed
 agent links stay. `unbond` is an alias.
 
@@ -238,17 +263,24 @@ arrows move  space marks  right opens  left closes  enter confirms  esc quits
 
 ### `grimoire index [--refresh]`
 
-Lists every bound repository and every familiar skill home. For each familiar,
-it shows how many bound skills are installed, reports blocked destinations, and
-lists verified installed links. It also reports missing skills or broken catalog
+Lists every bound repository and every familiar's `skills/` and `hooks/` homes.
+For each familiar, it shows how many bound resources are installed, reports
+blocked destinations, and lists verified installed links. It also reports
+missing resources or broken catalog
 links. In a terminal, `index` asks if you want to refresh. `--refresh` starts the
 refresh without the question.
 
 Refresh also repairs managed catalog and installed links. It follows a
-Git-detected skill path rename when the skill definition is unchanged apart
+Git-detected skill or hook path rename when its definition is unchanged apart
 from its top-level name. Bind and healthy refreshes record the repository
 identity. If that repository folder is later renamed in the same parent folder,
 refresh updates the binding. The pull remains safe:
+
+**Activated-hook warning:** refresh can fast-forward source code used by hooks
+that you separately activated in an agent or another tool. That can change
+executable behavior without another Grimoire review or activation step. Review
+incoming repository changes before running `index --refresh` when activated
+hooks point into that repository.
 
 1. A missing folder, or a folder that is not a Git repository, fails without
    touching anything.
@@ -306,9 +338,8 @@ $ grimoire toc
 
 ### `grimoire familiar [NAME]`
 
-Chooses a skill home: `global`, `claude`, `opencode`, or `codex`. The default is
-`global`, which installs into `~/.agents/skills`. OpenCode and Codex load this
-shared location. Claude Code needs the `claude` familiar.
+Chooses resource homes: `global`, `claude`, `opencode`, or `codex`. The default
+is `global`, which links into `~/.agents/skills` and `~/.agents/hooks`.
 
 ```text
 $ grimoire familiar claude
@@ -329,9 +360,11 @@ $ grimoire config boring true
 boring=true
 ```
 
-### `grimoire cast [SKILL]`
+### `grimoire cast [RESOURCE]`
 
-Installs a bound skill by name or repository path. Without one, opens a picker.
+Links a bound skill or hook by name, repository path, or qualified selector.
+Without one, opens a picker. Hook links are storage only and do not activate
+hooks.
 
 ```text
 $ grimoire cast test-skill
@@ -360,9 +393,9 @@ test-skill installed
              linked into /tmp/opencode/claude-home/skills/
 ```
 
-### `grimoire banish [SKILL]`
+### `grimoire banish [RESOURCE]`
 
-Removes a skill's agent links. Without one, opens a picker. Never touches the
+Removes a resource's familiar links. Without one, opens a picker. Never touches the
 source.
 
 ```text
@@ -395,8 +428,8 @@ test-skill removed
 
 ### `grimoire volley`
 
-Installs every bound skill. Safe to run repeatedly. Rich interactive runs show
-the fireworks animation even when every skill is already installed. The drawing
+Links every bound skill and hook. Safe to run repeatedly. Rich interactive runs show
+the fireworks animation even when every resource is already linked. The drawing
 scales with the terminal and stays centered when it is resized; press any key to
 skip it.
 
@@ -406,9 +439,12 @@ test-skill installed
 installed 1, skipped 0, failed 0
 ```
 
-### `grimoire effigy [SKILL]`
+### `grimoire effigy [RESOURCE]`
 
-Writes `output/NAME.zip` in that skill's repository.
+Writes `output/NAME.zip` for a skill and `output/hooks/NAME.zip` for a hook in
+that resource's repository. The per-kind destinations prevent a same-name
+skill and hook from overwriting one another. Hook folders use the same archive
+rules as skills.
 
 ```text
 $ grimoire effigy test-skill
@@ -417,7 +453,7 @@ packed test-skill to /tmp/opencode/output/test-skill.zip (401 B)
 
 ### `grimoire hone [--dry-run]`
 
-Repairs moved or broken links in the familiar's home.
+Repairs moved or broken links in every known familiar `skills/` and `hooks/` home.
 
 ```text
 $ grimoire hone
@@ -425,17 +461,20 @@ hone
 nothing to repair
 ```
 
-## Skill layout
+## Resource layout
 
 Skills may be nested at any depth below the repository root:
 
 ```text
 my-repo/skills/some-skill/SKILL.md
 my-repo/tools/agents/review-code/SKILL.md
+my-repo/hooks/preflight/HOOK.md
+my-repo/hooks/git/pre-commit/HOOK.md
 ```
 
-The picker groups skills by repository path, but installation is flat. A skill
-name may be used only once across all bound repositories. `SKILL.md` starts
+The picker groups resources by repository path, but installation is flat within
+each kind. A basename may be used only once per kind across all bound
+repositories. A directory may contain both markers. `SKILL.md` and `HOOK.md` may start
 with frontmatter:
 
 ```md
@@ -447,13 +486,19 @@ description: Use when a particular job needs doing.
 
 ## Installation rules
 
-Casting a skill creates one absolute symlink in the chosen familiar's home:
+Casting creates one absolute symlink in the chosen familiar's per-kind home.
+Catalog links use `$GRIMOIRE_HOME/skills/NAME` and
+`$GRIMOIRE_HOME/hooks/NAME`; installed links use:
 
 ```text
 ~/.agents/skills/some-skill        -> /path/to/repository/.../some-skill
 ~/.claude/skills/some-skill         -> /path/to/repository/.../some-skill
 ~/.config/opencode/skills/some-skill -> /path/to/repository/.../some-skill
 ~/.codex/skills/some-skill          -> /path/to/repository/.../some-skill
+~/.agents/hooks/some-hook           -> /path/to/repository/hooks/.../some-hook
+~/.claude/hooks/some-hook           -> /path/to/repository/hooks/.../some-hook
+~/.config/opencode/hooks/some-hook  -> /path/to/repository/hooks/.../some-hook
+~/.codex/hooks/some-hook            -> /path/to/repository/hooks/.../some-hook
 ```
 
 - A non-default familiar choice is stored in `~/.config/grimoire/familiar.json`.

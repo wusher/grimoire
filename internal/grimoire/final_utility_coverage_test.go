@@ -28,12 +28,69 @@ func TestMatcherCoversWhitespaceDistanceAndRankingEdges(t *testing.T) {
 	}
 }
 
+func TestOwnershipRestoreAndHookResourceValidationBranches(t *testing.T) {
+	paths := testPaths(t)
+	if err := os.MkdirAll(paths.ConfigHome, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.OwnershipFile(), []byte(`{"version":1,"links":[]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := restoreOwnership(paths, ownershipState{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(paths.OwnershipFile()); !os.IsNotExist(err) {
+		t.Fatalf("unpersisted ownership was not removed: %v", err)
+	}
+	persisted := ownershipState{Version: ownershipVersion, persisted: true}
+	persisted.set(filepath.Join(paths.SkillsHomes()[0], "alpha"), filepath.Join(paths.Home, "alpha"))
+	if err := restoreOwnership(paths, persisted); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := configuredOwnership(paths); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := validateHookResource(Skill{Kind: HookKind, Dir: filepath.Join(paths.Home, "hooks", "missing")}, false); err == nil {
+		t.Fatal("hook without repository was accepted")
+	}
+	repository := filepath.Join(paths.Home, "repository")
+	if err := os.MkdirAll(filepath.Join(repository, "hooks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	resource := Skill{Kind: HookKind, Repository: repository, Dir: filepath.Join(repository, "hooks", "missing")}
+	if err := validateHookResource(resource, false); err != nil {
+		t.Fatalf("missing optional hook resource: %v", err)
+	}
+}
+
+func TestWriteJSONFileReportsPreparationAndEncodingFailures(t *testing.T) {
+	root := t.TempDir()
+	blocked := filepath.Join(root, "blocked")
+	if err := os.WriteFile(blocked, []byte("file"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeJSONFile(filepath.Join(blocked, "state.json"), map[string]string{}); err == nil {
+		t.Fatal("blocked parent was accepted")
+	}
+	if err := writeJSONFile(filepath.Join(root, "channel.json"), make(chan int)); err == nil {
+		t.Fatal("unsupported JSON value was accepted")
+	}
+	target := filepath.Join(root, "target")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeJSONFile(target, map[string]string{"key": "value"}); err == nil {
+		t.Fatal("directory target was replaced")
+	}
+}
+
 func TestViewportAndColoredBlurbBoundaryHandling(t *testing.T) {
 	file, err := os.CreateTemp(t.TempDir(), "not-a-terminal")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	if got := terminalViewport(file); got != (viewport{columns: 80, rows: 24}) {
 		t.Fatalf("fallback viewport = %#v", got)
 	}
@@ -83,7 +140,7 @@ func TestCatalogSkipsMissingRootsAndRejectsInvalidSkillManifests(t *testing.T) {
 	if err := os.WriteFile(fileRoot, []byte("file"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := (&Catalog{}).walk(fileRoot, fileRoot, 0); err == nil {
+	if err := (&Catalog{}).walk(fileRoot, fileRoot, 0, SkillKind, paths.SkillsHomes()); err == nil {
 		t.Fatal("catalog walked a regular file")
 	}
 }

@@ -37,7 +37,7 @@ func Hone(paths Paths, dryRun bool) ([]Change, error) {
 	var changes []Change
 
 	for _, skill := range catalog.Skills {
-		for _, home := range paths.KnownSkillsHomes() {
+		for _, home := range paths.KnownResourceHomes(skill.Kind) {
 			link := filepath.Join(home, skill.Name)
 			actual, linkErr := linkTarget(link)
 			if os.IsNotExist(linkErr) {
@@ -57,7 +57,8 @@ func Hone(paths Paths, dryRun bool) ([]Change, error) {
 	}
 
 	for _, record := range append([]ownedLink(nil), ownership.Links...) {
-		if !knownSkillHome(paths, record.Path) {
+		kind, known := knownResourceKind(paths, record.Path)
+		if !known {
 			continue
 		}
 		actual, linkErr := linkTarget(record.Path)
@@ -69,9 +70,9 @@ func Hone(paths Paths, dryRun bool) ([]Change, error) {
 			changes = append(changes, Change{Action: "released", Name: filepath.Base(record.Path), Message: "link is missing or was replaced", Home: filepath.Dir(record.Path)})
 			continue
 		}
-		wanted, findErr := catalog.Find(filepath.Base(record.Path))
+		wanted, findErr := catalog.Find(kind.Name() + ":" + filepath.Base(record.Path))
 		if findErr != nil {
-			changes = append(changes, Change{Action: "clash", Name: filepath.Base(record.Path), Message: "two skills use this name. Rename one", Home: filepath.Dir(record.Path)})
+			changes = append(changes, Change{Action: "clash", Name: filepath.Base(record.Path), Message: "two " + kind.Plural() + " use this name. Rename one", Home: filepath.Dir(record.Path)})
 			continue
 		}
 		if wanted != nil {

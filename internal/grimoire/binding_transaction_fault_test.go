@@ -14,7 +14,7 @@ func emptyCatalogPlan(t *testing.T, root string) *bindingCatalogPlan {
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	return &bindingCatalogPlan{root: root}
+	return &bindingCatalogPlan{root: root, active: true}
 }
 
 func TestBindingMutationCommitFailureStagesRollback(t *testing.T) {
@@ -52,7 +52,7 @@ func TestBindingMutationCommitFailureStagesRollback(t *testing.T) {
 
 	t.Run("catalog verify", func(t *testing.T) {
 		paths := testPaths(t)
-		mutation := &bindingMutation{paths: paths, journal: bindingMutationJournal{Version: bindingMutationVersion}, catalog: &bindingCatalogPlan{root: filepath.Join(paths.Home, "missing-catalog")}}
+		mutation := &bindingMutation{paths: paths, journal: bindingMutationJournal{Version: bindingMutationVersion}, catalog: &bindingCatalogPlan{root: filepath.Join(paths.Home, "missing-catalog"), active: true}}
 		if err := mutation.Commit(); err == nil || !strings.Contains(err.Error(), "verify catalog links") {
 			t.Fatalf("catalog verify failure = %v", err)
 		}
@@ -80,12 +80,29 @@ func TestBindingMutationCommitFailureStagesRollback(t *testing.T) {
 
 	t.Run("ownership write", func(t *testing.T) {
 		paths := testPaths(t)
-		catalog := emptyCatalogPlan(t, paths.Binding())
-		catalog.directories = []string{paths.OwnershipFile()}
+		repository := filepath.Join(paths.Home, "repository")
+		source := makeSkillIn(t, repository, "", "alpha", "Alpha")
+		bindings := []BoundRepository{{Path: repository, Skills: []string{"alpha"}}}
+		catalog, err := planBindingCatalog(paths, nil, bindings, false, false, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		installed := filepath.Join(paths.SkillsHomes()[0], "alpha")
+		if err := os.MkdirAll(filepath.Dir(installed), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		links := &symlinkPlan{}
+		if err := links.Create(installed, source, true); err != nil {
+			t.Fatal(err)
+		}
 		before := ownershipState{Version: ownershipVersion}
 		after := before.clone()
-		after.set(filepath.Join(paths.Home, "link"), filepath.Join(paths.Home, "target"))
-		mutation := &bindingMutation{paths: paths, journal: bindingMutationJournal{Version: bindingMutationVersion}, catalog: catalog, links: &symlinkPlan{}, beforeOwnership: &before, afterOwnership: &after}
+		after.set(installed, source)
+		if err := os.MkdirAll(paths.OwnershipFile(), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		mutation := &bindingMutation{paths: paths, journal: bindingMutationJournal{Version: bindingMutationVersion, After: bindings}, catalog: catalog}
+		mutation.SetLinkAndOwnershipUpdate(links, before, after)
 		if err := mutation.Commit(); err == nil || !strings.Contains(err.Error(), "save ownership") {
 			t.Fatalf("ownership write failure = %v", err)
 		}
@@ -160,13 +177,28 @@ func TestBindingMutationRollbackReportsEveryProtectedFailure(t *testing.T) {
 
 func TestBindingMutationSuccessfulOwnershipCommit(t *testing.T) {
 	paths := testPaths(t)
+	repository := filepath.Join(paths.Home, "repository")
+	source := makeSkillIn(t, repository, "", "alpha", "Alpha")
+	bindings := []BoundRepository{{Path: repository, Skills: []string{"alpha"}}}
+	catalog, err := planBindingCatalog(paths, nil, bindings, false, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	installed := filepath.Join(paths.SkillsHomes()[0], "alpha")
+	if err := os.MkdirAll(filepath.Dir(installed), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	links := &symlinkPlan{}
+	if err := links.Create(installed, source, true); err != nil {
+		t.Fatal(err)
+	}
 	before := ownershipState{Version: ownershipVersion}
 	after := before.clone()
-	after.set(filepath.Join(paths.Home, "link"), filepath.Join(paths.Home, "target"))
-	mutation := &bindingMutation{paths: paths, journal: bindingMutationJournal{Version: bindingMutationVersion}, catalog: emptyCatalogPlan(t, paths.Binding())}
-	mutation.SetLinkAndOwnershipUpdate(&symlinkPlan{}, before, after)
-	if mutation.CatalogChangeCount() != 0 {
-		t.Fatal("unexpected catalog changes")
+	after.set(installed, source)
+	mutation := &bindingMutation{paths: paths, journal: bindingMutationJournal{Version: bindingMutationVersion, After: bindings}, catalog: catalog}
+	mutation.SetLinkAndOwnershipUpdate(links, before, after)
+	if mutation.CatalogChangeCount() == 0 {
+		t.Fatal("expected catalog changes")
 	}
 	if err := mutation.Commit(); err != nil {
 		t.Fatal(err)

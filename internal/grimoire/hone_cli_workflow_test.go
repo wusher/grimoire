@@ -68,7 +68,7 @@ func TestHoneCLIReportsAndAppliesEveryRepairClass(t *testing.T) {
 		t.Fatal(err)
 	}
 	dry := output.String()
-	for _, want := range []string{"would fix", "would remove", "would adopt", "would release", "to repair", "ownership recorded", "ownership released"} {
+	for _, want := range []string{"would fix", "would remove", "would adopt", "would release", "to repair", "ownership recorded", "ownership\nreleased"} {
 		if !strings.Contains(dry, want) {
 			t.Errorf("dry-run output missing %q: %q", want, dry)
 		}

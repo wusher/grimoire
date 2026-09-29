@@ -121,19 +121,24 @@ func Install(paths Paths, skill Skill) InstallResult {
 }
 
 func validateInstallSource(skill Skill) error {
+	if skill.Kind == HookKind {
+		if err := validateHookResource(skill, true); err != nil {
+			return fmt.Errorf("source hook: %w", err)
+		}
+	}
 	directory, err := os.Stat(skill.Dir)
 	if err != nil {
-		return fmt.Errorf("source skill directory: %w", err)
+		return fmt.Errorf("source %s directory: %w", skill.Kind.Name(), err)
 	}
 	if !directory.IsDir() {
-		return fmt.Errorf("source skill path is not a directory")
+		return fmt.Errorf("source %s path is not a directory", skill.Kind.Name())
 	}
-	regular, err := regularFileNoFollow(skill.SkillMD())
+	present, err := resourceMarker(skill.MarkerPath(), skill.Kind)
 	if err != nil {
-		return fmt.Errorf("source skill SKILL.md: %w", err)
+		return fmt.Errorf("source %s %s: %w", skill.Kind.Name(), skill.Kind.Marker(), err)
 	}
-	if !regular {
-		return fmt.Errorf("source skill SKILL.md is not a regular file")
+	if !present {
+		return fmt.Errorf("source %s %s is missing", skill.Kind.Name(), skill.Kind.Marker())
 	}
 	return nil
 }

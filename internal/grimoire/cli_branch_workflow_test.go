@@ -152,7 +152,7 @@ func TestCLIBoringIndexAndBindingFailureViews(t *testing.T) {
 	if code, err := cli.showBindingResults("bind", "", []BindResult{{Status: Blocked, Path: paths.Binding(), Message: "blocked"}}, true); code != 1 || err != nil {
 		t.Fatalf("boring failed binding = %d, %v", code, err)
 	}
-	for _, want := range []string{"missing folder", "missing skill", "blocked"} {
+	for _, want := range []string{"missing folder", "missing resource", "blocked"} {
 		if !strings.Contains(output.String(), want) {
 			t.Errorf("output missing %q: %q", want, output.String())
 		}

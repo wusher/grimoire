@@ -92,20 +92,20 @@ func TestCLIBoringErrorAndEmptyCommandPaths(t *testing.T) {
 		{[]string{"volley", "extra"}, "volley takes no arguments"},
 		{[]string{"hone", "--unknown"}, "unknown hone option"},
 		{[]string{"familiar", "a", "b"}, "familiar accepts one name"},
-		{[]string{"cast", "a", "b"}, "at most one skill"},
-		{[]string{"banish", "a", "b"}, "at most one skill"},
+		{[]string{"cast", "a", "b"}, "at most one resource"},
+		{[]string{"banish", "a", "b"}, "at most one resource"},
 	} {
 		if code, body := run(test.args...); code != 1 || !strings.Contains(body, test.want) {
 			t.Errorf("%v = %d, %q; want %q", test.args, code, body, test.want)
 		}
 	}
-	if code, body := run("toc"); code != 0 || body != "no bound skills\n" {
+	if code, body := run("toc"); code != 0 || body != "no bound skills or hooks\n" {
 		t.Fatalf("empty toc = %d, %q", code, body)
 	}
 	if code, body := run("volley"); code != 0 || !strings.Contains(body, "installed=0 skipped=0 failed=0") {
 		t.Fatalf("empty volley = %d, %q", code, body)
 	}
-	if code, body := run("effigy", "missing"); code != 1 || !strings.Contains(body, "no skill called missing") {
+	if code, body := run("effigy", "missing"); code != 1 || !strings.Contains(body, "no skill or hook called missing") {
 		t.Fatalf("missing effigy = %d, %q", code, body)
 	}
 }

@@ -124,14 +124,14 @@ func (c *CLI) help(out io.Writer) {
 		{"toc | list | ls", "Opens the searchable catalog."},
 	})
 	help = appendHelpBlock(help, content, theme, "the spells", [][2]string{
-		{"cast [SKILL]", "Installs one bound skill. Without SKILL, opens the tree."},
-		{"banish [SKILL]", "Removes one skill link. Without SKILL, opens the tree."},
-		{"volley", "Installs every skill in the book."},
-		{"effigy [SKILL]", "Zips one bound skill. Without SKILL, opens a picker."},
+		{"cast [RESOURCE]", "Links one bound skill or hook. Without a selector, opens the tree."},
+		{"banish [RESOURCE]", "Removes one linked resource. Without a selector, opens the tree."},
+		{"volley", "Links every skill and hook in the book."},
+		{"effigy [RESOURCE]", "Zips one bound skill or hook. Without a selector, opens a picker."},
 	})
 	help = appendHelpBlock(help, content, theme, "the binding", [][2]string{
-		{"bind [NAME...]", "Adds and installs skills from this Git repository. Alias: bond."},
-		{"unbind [SKILL...]", "Forgets bound skills. Without SKILL, opens the tree. Alias: unbond."},
+		{"bind [SELECTOR...]", "Adds and installs skills and hooks from this Git repository. Alias: bond."},
+		{"unbind [SELECTOR...]", "Forgets bound skills. Hook selectors work too. Without selectors, opens the tree. Alias: unbond."},
 		{"  --replace-legacy-root", "Approves replacement of an old catalog-root link."},
 		{"index", "Lists bound repositories and every familiar home."},
 		{"  --refresh", "Refreshes now and repairs managed links."},
@@ -143,10 +143,14 @@ func (c *CLI) help(out io.Writer) {
 	})
 	help = append(help, content.Section("worth knowing"), "")
 	for _, note := range []string{
-		"A bind finds every [skill-name]/SKILL.md below the Git root.",
+		"Bind finds SKILL.md recursively and HOOK.md only below the top-level hooks/ folder.",
+		"Use skill:NAME or hook:NAME when a bare name or path is ambiguous.",
+		"The old unbind [SKILL...] form remains valid; hooks use hook:NAME.",
+		"Hook links are storage only; Grimoire does not register or activate hooks.",
+		"Refresh can change code used by separately activated hooks; review updates before refreshing.",
 		"Full-screen views redraw after a terminal resize.",
 		"Pass names or paths to skip pickers in scripts.",
-		"Global uses ~/.agents/skills and is the default familiar.",
+		"Global uses ~/.agents/skills and ~/.agents/hooks and is the default familiar.",
 		"NO_COLOR=1 turns color off. GRIMOIRE_ICONS=0 turns icons off.",
 	} {
 		lines := wrapWords(note, max(1, content.Inner-8))
@@ -167,7 +171,7 @@ func (c *CLI) help(out io.Writer) {
 		}
 	}
 	fmt.Fprintln(out)
-	writeLines(out, page.Bind(body, "grimoire", "keeps agent skills in one book", "grimoire toc  ·  grimoire cast"))
+	writeLines(out, page.Bind(body, "grimoire", "keeps agent resources in one book", "grimoire toc  ·  grimoire cast"))
 	fmt.Fprintln(out)
 }
 
@@ -176,13 +180,13 @@ func (c *CLI) boringHelp(out io.Writer) {
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "Commands:")
 	for _, line := range []string{
-		"  toc | list | ls             List bound skills.",
-		"  cast [SKILL]                Install one bound skill.",
-		"  banish [SKILL]              Remove one installed skill link.",
-		"  volley                      Install all bound skills.",
-		"  effigy [SKILL]              Write one skill zip file.",
-		"  bind [NAME...]              Add and install skills from this Git repository. Alias: bond.",
-		"  unbind [SKILL...]           Unbind skills. Alias: unbond.",
+		"  toc | list | ls             List bound skills and hooks.",
+		"  cast [RESOURCE]             Link one bound skill or hook.",
+		"  banish [RESOURCE]           Remove one linked skill or hook.",
+		"  volley                      Link all bound skills and hooks.",
+		"  effigy [RESOURCE]           Write one resource zip file.",
+		"  bind [SELECTOR...]          Add and install resources from this repository. Alias: bond.",
+		"  unbind [SELECTOR...]        Unbind resources. Alias: unbond.",
 		"    --replace-legacy-root     Approve replacement of an old catalog-root link.",
 		"  index [--refresh]           List repositories and familiar homes; optionally refresh.",
 		"  familiar [NAME]             Set global, claude, opencode, or codex.",
@@ -250,7 +254,7 @@ func (c *CLI) toc(args []string) error {
 func (c *CLI) printTOC(catalog Catalog) {
 	if c.Config.Boring {
 		if len(catalog.Skills) == 0 {
-			c.writeResponsive(c.Out, "", Grey, "no bound skills", Grey)
+			c.writeResponsive(c.Out, "", Grey, "no bound skills or hooks", Grey)
 			return
 		}
 		for _, skill := range catalog.Skills {
@@ -258,7 +262,7 @@ func (c *CLI) printTOC(catalog Catalog) {
 			if skill.Installed() {
 				status = "installed"
 			}
-			c.writeResponsive(c.Out, "", Grey, skill.Name+"\t"+status, Grey)
+			c.writeResponsive(c.Out, "", Grey, resourceDisplayName(skill)+"\t"+status, Grey)
 		}
 		return
 	}
@@ -313,7 +317,11 @@ func tocSkillBody(page Page, theme Theme, skills []Skill, multipleRepositories b
 				status = theme.Tag("candle", Amber) + theme.Paint(fmt.Sprintf("%-9s", "installed"), Green)
 				installed++
 			}
-			body = append(body, page.Entry(skill.Name, status, isInstalled))
+			name := skill.Name
+			if skill.Kind == HookKind {
+				name = theme.Tag("hook", Magenta) + "hook:" + name
+			}
+			body = append(body, page.Entry(name, status, isInstalled))
 			if skill.Description != "" {
 				body = append(body, page.Blurb(skill.Description)...)
 			}
@@ -389,14 +397,14 @@ func (c *CLI) cast(args []string) (int, error) {
 		c.note("nothing picked")
 		return 0, nil
 	}
-	return c.installSkills(chosen, true)
+	return c.installResources(chosen, true)
 }
 
-func (c *CLI) installSkills(chosen []Skill, showArt bool) (int, error) {
+func (c *CLI) installResources(chosen []Skill, showArt bool) (int, error) {
 	results := make([]InstallResult, 0, len(chosen))
 	blocked := false
-	for _, skill := range chosen {
-		result := Install(c.Paths, skill)
+	for _, resource := range chosen {
+		result := Install(c.Paths, resource)
 		results = append(results, result)
 		blocked = blocked || result.Status == InstallBlocked
 		c.writeInstallResult(result)
@@ -461,7 +469,7 @@ func (c *CLI) banish(args []string) (int, error) {
 
 func (c *CLI) choose(args []string, catalog Catalog, pool []Skill, verb string) ([]Skill, error) {
 	if len(args) > 1 {
-		return nil, fmt.Errorf("%s accepts at most one skill name", verb)
+		return nil, fmt.Errorf("%s accepts at most one resource selector", verb)
 	}
 	if len(args) == 1 {
 		skill, err := catalog.Find(args[0])
@@ -469,17 +477,17 @@ func (c *CLI) choose(args []string, catalog Catalog, pool []Skill, verb string) 
 			return nil, err
 		}
 		if skill == nil {
-			return nil, fmt.Errorf("no skill called %s", args[0])
+			return nil, fmt.Errorf("no skill or hook called %s", args[0])
 		}
 		return []Skill{*skill}, nil
 	}
 	if len(pool) == 0 {
-		c.note("no skills left to " + verb)
+		c.note("no skills left to " + verb + "; no hooks left")
 		return nil, nil
 	}
 	if c.Config.Boring {
 		command := map[string]string{"install": "cast", "remove": "banish", "pack": "effigy"}[verb]
-		return nil, fmt.Errorf("boring mode has no picker; pass a skill name: grimoire %s SKILL", command)
+		return nil, fmt.Errorf("boring mode has no picker; use grimoire %s SKILL or hook:NAME", command)
 	}
 	inFile, inOK := c.In.(*os.File)
 	errFile, errOK := c.Err.(*os.File)
@@ -496,7 +504,7 @@ func (c *CLI) installSummary(results []InstallResult, where string) {
 	names := make([]string, 0, len(results))
 	for _, result := range results {
 		counts[result.Status]++
-		names = append(names, result.Skill.Name)
+		names = append(names, resourceDisplayName(result.Skill))
 	}
 	words := []string{}
 	order := []struct {
@@ -516,7 +524,18 @@ func (c *CLI) installSummary(results []InstallResult, where string) {
 	fmt.Fprintln(c.Out, page.Centered(theme.Paint(theme.Trim(strings.Join(names, "  ·  "), page.Inner), Violet)))
 	fmt.Fprintln(c.Out, page.Centered(clipVisible(strings.Join(words, theme.Paint("  ·  ", Dim)), page.Inner)))
 	fmt.Fprintln(c.Out)
-	for index, home := range c.Paths.SkillsHomes() {
+	homes := map[string]bool{}
+	for _, result := range results {
+		for _, home := range result.Skill.LinkPaths() {
+			homes[filepath.Dir(home)] = true
+		}
+	}
+	orderedHomes := make([]string, 0, len(homes))
+	for home := range homes {
+		orderedHomes = append(orderedHomes, home)
+	}
+	sort.Strings(orderedHomes)
+	for index, home := range orderedHomes {
 		lead := "and"
 		if index == 0 {
 			lead = where
@@ -546,7 +565,7 @@ func (c *CLI) writeInstallResult(result InstallResult) {
 	if c.Config.Boring {
 		icon = ""
 	}
-	c.writeResponsive(c.Out, icon, color, result.Skill.Name+" "+result.Message, color)
+	c.writeResponsive(c.Out, icon, color, resourceDisplayName(result.Skill)+" "+result.Message, color)
 	for _, change := range result.Changes {
 		c.writePathChange(c.Out, change)
 	}
@@ -770,12 +789,12 @@ func (c *CLI) bind(args []string) (int, error) {
 	if err != nil {
 		return 1, err
 	}
-	root, discovered, err := DiscoverRepositorySkills(cwd, c.Paths.SkillsHomes())
+	root, discovered, err := DiscoverRepositoryResources(c.Paths, cwd)
 	if err != nil {
 		return 1, err
 	}
 	if len(discovered) == 0 {
-		return 1, fmt.Errorf("no */SKILL.md folders found in this Git repository")
+		return 1, fmt.Errorf("no skills or hooks found (hooks must be below the top-level hooks/ folder)")
 	}
 	chosen, err := c.chooseSkills(args, discovered, "discovered", "bind")
 	if err != nil {
@@ -792,7 +811,7 @@ func (c *CLI) bind(args []string) (int, error) {
 	if _, err := c.showBindingResults("bind", "the book takes your hand", []BindResult{result}, false); err != nil {
 		return 1, err
 	}
-	return c.installSkills(chosen, false)
+	return c.installResources(chosen, false)
 }
 
 func (c *CLI) chooseSkills(args []string, skills []Skill, scope, command string) ([]Skill, error) {
@@ -800,39 +819,54 @@ func (c *CLI) chooseSkills(args []string, skills []Skill, scope, command string)
 		chosen := make([]Skill, 0, len(args))
 		seen := map[string]bool{}
 		for _, wanted := range args {
-			selector := filepath.Clean(filepath.FromSlash(wanted))
-			var matches []Skill
-			for _, skill := range skills {
-				if filepath.Clean(skill.RepoPath()) == selector || skill.Name == wanted {
-					matches = append(matches, skill)
-				}
+			kind, selector, qualified := parseResourceSelector(wanted)
+			matches := matchResourceSelectors(skills, selector, &kind)
+			if !qualified || len(matches) == 0 {
+				matches = matchResourceSelectors(skills, wanted, nil)
 			}
 			if len(matches) == 0 {
-				return nil, fmt.Errorf("no %s skill called %s", scope, wanted)
+				return nil, fmt.Errorf("no %s skill called %s (or hook with that selector)", scope, wanted)
 			}
 			if len(matches) > 1 {
-				return nil, fmt.Errorf("%s matches more than one skill; use its repository path", wanted)
+				return nil, fmt.Errorf("%s matches more than one resource; use skill:%s or hook:%s", wanted, selector, selector)
 			}
-			if !seen[matches[0].Dir] {
-				seen[matches[0].Dir] = true
+			if !seen[matches[0].identity()] {
+				seen[matches[0].identity()] = true
 				chosen = append(chosen, matches[0])
 			}
 		}
 		return chosen, nil
 	}
 	if c.Config.Boring {
-		return nil, fmt.Errorf("boring mode has no picker; pass skill names or paths with grimoire %s NAME", command)
+		return nil, fmt.Errorf("boring mode has no picker; use grimoire %s NAME or hook:NAME", command)
 	}
 	inFile, inOK := c.In.(*os.File)
 	errFile, errOK := c.Err.(*os.File)
 	if !inOK || !errOK {
-		return nil, fmt.Errorf("this terminal cannot show a picker. Pass skill names or paths instead")
+		return nil, fmt.Errorf("this terminal cannot show a picker. Pass skill names or paths instead; hooks use hook:NAME or hook:path")
 	}
 	picker := Picker{In: inFile, Out: errFile, Prompt: command + " which?", Theme: c.theme(errFile)}
 	if command == "bind" {
 		picker.SelectAllLabel = "bind all"
 	}
 	return picker.Pick(skills)
+}
+
+func matchResourceSelectors(resources []Skill, selector string, kind *ResourceKind) []Skill {
+	var matches []Skill
+	for _, resource := range resources {
+		if (kind == nil || resource.Kind == *kind) && (resource.RepoPath() == normalizeResourceSelector(resource.Kind, selector) || resource.Name == selector) {
+			matches = append(matches, resource)
+		}
+	}
+	return matches
+}
+
+func resourceDisplayName(resource Skill) string {
+	if resource.Kind == HookKind {
+		return "hook:" + resource.Name
+	}
+	return resource.Name
 }
 
 func (c *CLI) index(args []string) (int, error) {
@@ -881,16 +915,18 @@ func (c *CLI) showIndex(repositories []BoundRepository) {
 	familiars := indexFamiliars(c.Paths, repositories)
 	if c.Config.Boring {
 		for _, repository := range repositories {
-			status := fmt.Sprintf("%d skill%s bound", len(repository.Skills), plural(len(repository.Skills)))
-			if len(repository.Skills) == 0 {
+			status := selectionMessage(repository.Skills, repository.Hooks, "bound")
+			if len(repository.Skills)+len(repository.Hooks) == 0 {
 				status = "whole repository"
 			}
 			if info, err := os.Stat(repository.Path); err != nil || !info.IsDir() {
 				status = "missing folder"
-			} else if missing, broken := repositoryIssues(c.Paths, repository); missing > 0 || broken > 0 {
+			} else if missing, broken, issueErr := repositoryIssues(c.Paths, repository); issueErr != nil {
+				status = "inspection failed: " + issueErr.Error()
+			} else if missing > 0 || broken > 0 {
 				issues := []string{}
 				if missing > 0 {
-					issues = append(issues, fmt.Sprintf("%d missing skill%s", missing, plural(missing)))
+					issues = append(issues, fmt.Sprintf("%d missing resource%s", missing, plural(missing)))
 				}
 				if broken > 0 {
 					issues = append(issues, fmt.Sprintf("%d broken link%s", broken, plural(broken)))
@@ -900,10 +936,10 @@ func (c *CLI) showIndex(repositories []BoundRepository) {
 			c.writeResponsive(c.Out, "", Grey, shortPath(repository.Path, c.Paths.Home)+"\t"+status, Grey)
 		}
 		for _, familiar := range familiars {
-			message := fmt.Sprintf("familiar=%s\thome=%s\tinstalled=%d\tbound=%d\tblocked=%d", familiar.Name, shortPath(familiar.Home, c.Paths.Home), len(familiar.Skills), familiar.Bound, familiar.Blocked)
+			message := fmt.Sprintf("familiar=%s\tskills=%s\thooks=%s\tinstalled=%d\tbound=%d\tblocked=%d", familiar.Name, shortPath(familiar.Home, c.Paths.Home), shortPath(familiar.HookHome, c.Paths.Home), len(familiar.Skills), familiar.Bound, familiar.Blocked)
 			c.writeResponsive(c.Out, "", Grey, message, Grey)
 			for _, skill := range familiar.Skills {
-				c.writeResponsive(c.Out, "", Grey, "skill="+skill.Name+"\tlink="+shortPath(skill.Link, c.Paths.Home)+"\ttarget="+shortPath(skill.Target, c.Paths.Home), Grey)
+				c.writeResponsive(c.Out, "", Grey, skill.Kind.Name()+"="+skill.Name+"\tlink="+shortPath(skill.Link, c.Paths.Home)+"\ttarget="+shortPath(skill.Target, c.Paths.Home), Grey)
 			}
 		}
 		return
@@ -912,16 +948,18 @@ func (c *CLI) showIndex(repositories []BoundRepository) {
 	page := NewPage(theme)
 	body := []string{}
 	for index, repository := range repositories {
-		status := theme.Paint(fmt.Sprintf("%d skill%s bound", len(repository.Skills), plural(len(repository.Skills))), Green)
-		if len(repository.Skills) == 0 {
+		status := theme.Paint(selectionMessage(repository.Skills, repository.Hooks, "bound"), Green)
+		if len(repository.Skills)+len(repository.Hooks) == 0 {
 			status = theme.Paint("whole repository", Grey)
 		}
 		if info, err := os.Stat(repository.Path); err != nil || !info.IsDir() {
 			status = theme.Tag("warn", Red) + theme.Paint("missing folder", Red)
-		} else if missing, broken := repositoryIssues(c.Paths, repository); missing > 0 || broken > 0 {
+		} else if missing, broken, issueErr := repositoryIssues(c.Paths, repository); issueErr != nil {
+			status = theme.Tag("warn", Red) + theme.Paint("inspection failed: "+issueErr.Error(), Red)
+		} else if missing > 0 || broken > 0 {
 			issues := []string{}
 			if missing > 0 {
-				issues = append(issues, fmt.Sprintf("%d missing skill%s", missing, plural(missing)))
+				issues = append(issues, fmt.Sprintf("%d missing resource%s", missing, plural(missing)))
 			}
 			if broken > 0 {
 				issues = append(issues, fmt.Sprintf("%d broken link%s", broken, plural(broken)))
@@ -934,16 +972,22 @@ func (c *CLI) showIndex(repositories []BoundRepository) {
 	body = append(body, "", page.Section("familiar homes"), "")
 	for _, familiar := range familiars {
 		entry := theme.Paint(familiar.Label, Amber)
-		home := theme.Paint(shortPath(familiar.Home, c.Paths.Home), Violet)
+		home := theme.Paint("skills "+shortPath(familiar.Home, c.Paths.Home)+"  ·  hooks "+shortPath(familiar.HookHome, c.Paths.Home), Violet)
 		body = append(body, page.Fill(entry, home, "· "))
-		status := fmt.Sprintf("%d of %d bound skill%s installed", len(familiar.Skills), familiar.Bound, plural(familiar.Bound))
+		kindWord := "resource"
+		if familiar.HookBound == 0 {
+			kindWord = "skill"
+		} else if familiar.SkillBound == 0 {
+			kindWord = "hook"
+		}
+		status := fmt.Sprintf("%d of %d bound %s%s installed", len(familiar.Skills), familiar.Bound, kindWord, plural(familiar.Bound))
 		if familiar.Blocked > 0 {
 			status += fmt.Sprintf("  ·  %d blocked", familiar.Blocked)
 		}
 		body = append(body, "    "+theme.Paint(status, Dim))
 		for _, skill := range familiar.Skills {
 			link := shortPath(skill.Link, c.Paths.Home) + " -> " + shortPath(skill.Target, c.Paths.Home)
-			body = append(body, "    "+theme.Paint(skill.Name, Green))
+			body = append(body, "    "+theme.Paint(resourceDisplayName(Skill{Kind: skill.Kind, Name: skill.Name}), Green))
 			for _, line := range wrapWords(link, max(1, page.Inner-8)) {
 				body = append(body, "        "+theme.Paint(line, Dim))
 			}
@@ -955,16 +999,20 @@ func (c *CLI) showIndex(repositories []BoundRepository) {
 }
 
 type indexedFamiliar struct {
-	Name    string
-	Label   string
-	Home    string
-	Bound   int
-	Blocked int
-	Skills  []indexedFamiliarSkill
+	Name       string
+	Label      string
+	Home       string
+	HookHome   string
+	Bound      int
+	SkillBound int
+	HookBound  int
+	Blocked    int
+	Skills     []indexedFamiliarSkill
 }
 
 type indexedFamiliarSkill struct {
 	Name   string
+	Kind   ResourceKind
 	Link   string
 	Target string
 }
@@ -973,12 +1021,22 @@ func indexFamiliars(paths Paths, repositories []BoundRepository) []indexedFamili
 	familiars := availableFamiliars(paths)
 	indexed := make([]indexedFamiliar, 0, len(familiars))
 	for _, familiar := range familiars {
-		entry := indexedFamiliar{Name: familiar.Name, Label: familiar.Label, Home: familiar.Home}
+		entry := indexedFamiliar{Name: familiar.Name, Label: familiar.Label, Home: familiar.Home, HookHome: filepath.Join(filepath.Dir(familiar.Home), "hooks")}
 		for _, repository := range repositories {
-			for _, rel := range repository.Skills {
+			for _, resource := range repositoryResources(repository) {
+				rel, kind := resource.path, resource.kind
 				entry.Bound++
+				if kind == HookKind {
+					entry.HookBound++
+				} else {
+					entry.SkillBound++
+				}
 				target := filepath.Join(repository.Path, rel)
-				link := filepath.Join(familiar.Home, filepath.Base(rel))
+				home := entry.Home
+				if kind == HookKind {
+					home = entry.HookHome
+				}
+				link := filepath.Join(home, filepath.Base(rel))
 				if _, err := os.Lstat(link); err != nil {
 					if !os.IsNotExist(err) {
 						entry.Blocked++
@@ -990,10 +1048,15 @@ func indexFamiliars(paths Paths, repositories []BoundRepository) []indexedFamili
 					entry.Blocked++
 					continue
 				}
-				entry.Skills = append(entry.Skills, indexedFamiliarSkill{Name: filepath.Base(rel), Link: link, Target: target})
+				entry.Skills = append(entry.Skills, indexedFamiliarSkill{Name: filepath.Base(rel), Kind: kind, Link: link, Target: target})
 			}
 		}
-		sort.Slice(entry.Skills, func(i, j int) bool { return entry.Skills[i].Name < entry.Skills[j].Name })
+		sort.Slice(entry.Skills, func(i, j int) bool {
+			if entry.Skills[i].Name == entry.Skills[j].Name {
+				return entry.Skills[i].Kind.Name() < entry.Skills[j].Kind.Name()
+			}
+			return entry.Skills[i].Name < entry.Skills[j].Name
+		})
 		indexed = append(indexed, entry)
 	}
 	return indexed
@@ -1088,7 +1151,7 @@ func (c *CLI) unbind(args []string) (int, error) {
 		if len(args) > 0 {
 			return 1, fmt.Errorf("no bound skill called %s", args[0])
 		}
-		c.note("no skills are bound")
+		c.note("no skills are bound; no hooks are bound")
 		return 0, nil
 	}
 	chosen, err := c.chooseSkills(args, bound, "bound", "unbind")
@@ -1219,15 +1282,15 @@ func (c *CLI) bindingBody(page Page, theme Theme, art []string, hue Color, comma
 		body = append(body, "")
 	}
 	omens := []string{
-		"the chosen skills now answer from the book",
+		"the chosen resources now answer from the book",
 		"their source stays in this repository",
-		"bind again here to add more skills",
+		"bind again here to add more resources",
 	}
 	if command == "unbind" {
 		omens = []string{
-			"the book forgets the selected skills",
+			"the book forgets the selected resources",
 			"the source folders and installed links remain",
-			"the other bound skills remain connected",
+			"the other bound resources remain connected",
 		}
 	}
 	for _, omen := range omens {

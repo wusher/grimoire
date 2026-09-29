@@ -40,7 +40,11 @@ var familiarMetadata = [...]familiarDefinition{
 }
 
 func (f familiarDefinition) skillsHome(paths Paths) string {
-	return filepath.Join(f.home(paths), "skills")
+	return f.resourceHome(paths, SkillKind)
+}
+
+func (f familiarDefinition) resourceHome(paths Paths, kind ResourceKind) string {
+	return filepath.Join(f.home(paths), kind.Plural())
 }
 
 func availableFamiliars(paths Paths) []agentFamiliar {
@@ -194,10 +198,12 @@ func (c *CLI) showFamiliar(name string) {
 			if c.Config.Boring {
 				c.writeResponsive(c.Out, "", Grey, "familiar="+familiar.Name, Grey)
 				c.writeResponsive(c.Out, "", Grey, "skills="+shortPath(familiar.Home, c.Paths.Home), Grey)
+				c.writeResponsive(c.Out, "", Grey, "hooks="+shortPath(filepath.Join(filepath.Dir(familiar.Home), "hooks"), c.Paths.Home), Grey)
 				return
 			}
 			c.writeResponsive(c.Out, "paw", Amber, "the grimoire is bound to "+familiar.Label, Violet)
-			c.writeResponsive(c.Out, "star", Grey, shortPath(familiar.Home, c.Paths.Home), Grey)
+			c.writeResponsive(c.Out, "book", Grey, "skills: "+shortPath(familiar.Home, c.Paths.Home), Grey)
+			c.writeResponsive(c.Out, "hook", Grey, "hooks: "+shortPath(filepath.Join(filepath.Dir(familiar.Home), "hooks"), c.Paths.Home), Grey)
 			return
 		}
 	}

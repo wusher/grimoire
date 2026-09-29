@@ -69,7 +69,7 @@ func (p Picker) Pick(skills []Skill) ([]Skill, error) {
 			if len(marked) > 0 {
 				chosen := make([]Skill, 0, len(marked))
 				for _, skill := range skills {
-					if _, ok := marked[skill.Dir]; ok {
+					if _, ok := marked[skill.identity()]; ok {
 						chosen = append(chosen, skill)
 					}
 				}
@@ -115,9 +115,9 @@ func (p Picker) Pick(skills []Skill) ([]Skill, error) {
 				all := markedAll(row, marked)
 				for _, skill := range row.Skills {
 					if all {
-						delete(marked, skill.Dir)
+						delete(marked, skill.identity())
 					} else {
-						marked[skill.Dir] = skill
+						marked[skill.identity()] = skill
 					}
 				}
 			}
@@ -267,7 +267,7 @@ func markedAll(row PickerRow, marked map[string]Skill) bool {
 		return false
 	}
 	for _, skill := range row.Skills {
-		if _, ok := marked[skill.Dir]; !ok {
+		if _, ok := marked[skill.identity()]; !ok {
 			return false
 		}
 	}
@@ -276,7 +276,7 @@ func markedAll(row PickerRow, marked map[string]Skill) bool {
 
 func markedSome(row PickerRow, marked map[string]Skill) bool {
 	for _, skill := range row.Skills {
-		if _, ok := marked[skill.Dir]; ok {
+		if _, ok := marked[skill.identity()]; ok {
 			return true
 		}
 	}

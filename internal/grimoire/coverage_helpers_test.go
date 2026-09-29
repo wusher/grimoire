@@ -87,7 +87,7 @@ func TestCoveragePickerAndBrowserHelpers(t *testing.T) {
 		t.Fatal("non-terminal picker must fail")
 	}
 	rows := []PickerRow{{Name: "tools", Group: true, Open: true, Skills: skills}, {Name: "alpha", Description: "first", Skills: skills[:1]}}
-	marked := map[string]Skill{"/a": skills[0]}
+	marked := map[string]Skill{skills[0].identity(): skills[0]}
 	if len(picker.frame(rows, "long query", 1, marked, viewport{columns: 40, rows: 5})) != 5 || len(picker.frame(nil, "", 0, nil, viewport{columns: 10, rows: 2})) != 2 {
 		t.Fatal("picker frame dimensions")
 	}
@@ -107,8 +107,14 @@ func TestCoveragePickerAndBrowserHelpers(t *testing.T) {
 	if got, changed := editCatalogQuery("é", "backspace"); !changed || got != "" {
 		t.Fatalf("backspace = %q, %t", got, changed)
 	}
+	if got, changed := editCatalogQuery("", "backspace"); changed || got != "" {
+		t.Fatalf("empty backspace = %q, %t", got, changed)
+	}
 	if got, changed := editCatalogQuery("", "space"); !changed || got != " " {
 		t.Fatalf("space = %q, %t", got, changed)
+	}
+	if got, changed := editCatalogQuery("query", "enter"); changed || got != "query" {
+		t.Fatalf("control query edit = %q, %t", got, changed)
 	}
 	for _, size := range []viewport{{columns: 20, rows: 4}, {columns: 70, rows: 18}} {
 		lines, _ := browser.frame(skills, "alpha", 99, size.columns, size.rows)
@@ -162,7 +168,7 @@ func TestCoverageFamiliarBindingAndCastErrors(t *testing.T) {
 	if err := os.MkdirAll(repo, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := selectedPaths(repo, []Skill{{Dir: filepath.Join(paths.Home, "outside")}}); err == nil {
+	if _, _, err := selectedPaths(repo, []Skill{{Dir: filepath.Join(paths.Home, "outside")}}); err == nil {
 		t.Fatal("outside skill")
 	}
 	makeSkill(t, paths, "", "alpha", "First")
@@ -172,7 +178,7 @@ func TestCoverageFamiliarBindingAndCastErrors(t *testing.T) {
 		t.Fatalf("boring familiar = %d", code)
 	}
 	out.Reset()
-	if code := cli.Run(context.Background(), []string{"cast"}); code != 1 || !strings.Contains(out.String(), "pass a skill name") {
+	if code := cli.Run(context.Background(), []string{"cast"}); code != 1 || !strings.Contains(out.String(), "use grimoire cast SKILL or hook:NAME") {
 		t.Fatalf("unnamed cast = %d: %s", code, out.String())
 	}
 	out.Reset()

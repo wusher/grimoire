@@ -51,15 +51,17 @@ func TestBindingRecoveryCompletesInstalledLinksCatalogAndOwnership(t *testing.T)
 func TestBindingRecoveryPreservesForeignInterruptedInstalledLink(t *testing.T) {
 	paths := testPaths(t)
 	paths.Repo = ""
-	link, foreign := filepath.Join(paths.Home, "installed", "alpha"), filepath.Join(paths.Home, "foreign", "alpha")
+	link, foreign := filepath.Join(paths.SkillsHomes()[0], "alpha"), filepath.Join(paths.Home, "foreign", "alpha")
 	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := createSymlink(foreign, link, true); err != nil {
 		t.Fatal(err)
 	}
+	wanted := filepath.Join(paths.Home, "wanted", "alpha")
 	journal := bindingMutationJournal{Version: bindingMutationVersion,
-		Links: []journalSymlinkAction{{Kind: symlinkCreate, Path: link, Target: filepath.Join(paths.Home, "wanted", "alpha"), Directory: true}}}
+		After: []BoundRepository{{Path: filepath.Dir(wanted), Skills: []string{"alpha"}}},
+		Links: []journalSymlinkAction{{Kind: symlinkCreate, Path: link, Target: wanted, Directory: true}}}
 	if err := writeBindingMutationJournal(paths, journal); err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +161,7 @@ func TestBindingCatalogRejectsDuplicateSkillNamesBeforeMutation(t *testing.T) {
 func TestCatalogFindRequiresRepositoryPathForClashingNames(t *testing.T) {
 	catalog := Catalog{Skills: []Skill{{Name: "alpha", Group: "one", Dir: "/one/alpha", Repository: "/one"}, {Name: "alpha", Group: "two", Dir: "/two/alpha", Repository: "/two"}}, Clashes: map[string][]Skill{}}
 	catalog.finish()
-	if _, err := catalog.Find("alpha"); err == nil || !strings.Contains(err.Error(), "Rename one") {
+	if _, err := catalog.Find("alpha"); err == nil || !strings.Contains(err.Error(), "ambiguous") {
 		t.Fatalf("ambiguous lookup error = %v", err)
 	}
 	skill, err := catalog.Find(filepath.Join("two", "alpha"))
