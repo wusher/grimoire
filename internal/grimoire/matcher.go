@@ -119,7 +119,7 @@ func skillMatchScore(query string, skill Skill) (int, bool) {
 	if len(terms) == 0 {
 		return 0, true
 	}
-	tokens := []string{skill.Name, skill.Group}
+	tokens := []string{skill.Name, skill.Group, skill.Kind.Name()}
 	for _, field := range []string{skill.Name, skill.Group, skill.Description} {
 		tokens = append(tokens, strings.FieldsFunc(field, func(mark rune) bool {
 			return !unicode.IsLetter(mark) && !unicode.IsNumber(mark)

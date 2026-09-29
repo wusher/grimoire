@@ -15,6 +15,7 @@ import (
 type BoundRepository struct {
 	Path     string   `json:"path"`
 	Skills   []string `json:"skills"`
+	Hooks    []string `json:"hooks,omitempty"`
 	Identity string   `json:"identity,omitempty"`
 	Revision string   `json:"revision,omitempty"`
 }
@@ -78,6 +79,12 @@ type RefreshChange struct {
 // uses --ff-only so a diverged branch fails instead of merging or rewriting.
 // Local work is never touched.
 func PullLatest(repository string) RefreshResult {
+	return pullLatest(repository, nil)
+}
+
+type preMergeCheck func(before, target string) error
+
+func pullLatest(repository string, preMerge preMergeCheck) RefreshResult {
 	info, statErr := os.Stat(repository)
 	if statErr != nil || !info.IsDir() {
 		return RefreshResult{Repo: repository, Status: RefreshFailed, Message: "folder is missing"}
@@ -110,7 +117,16 @@ func PullLatest(repository string) RefreshResult {
 	if err != nil || current != before {
 		return RefreshResult{Repo: repository, Status: RefreshSkipped, Message: "HEAD changed during fetch; left alone", before: before}
 	}
-	if _, err := gitOutput(repository, "merge", "--ff-only", "@{u}"); err != nil {
+	target, err := gitOutput(repository, "rev-parse", "@{u}^{commit}")
+	if err != nil {
+		return RefreshResult{Repo: repository, Status: RefreshFailed, Message: "cannot read upstream after fetch; left alone", before: before}
+	}
+	if preMerge != nil {
+		if err := preMerge(before, target); err != nil {
+			return RefreshResult{Repo: repository, Status: RefreshFailed, Message: "unsafe hook update; left alone: " + err.Error(), before: before}
+		}
+	}
+	if _, err := gitOutput(repository, "merge", "--ff-only", target); err != nil {
 		return RefreshResult{Repo: repository, Status: RefreshFailed, Message: "not fast-forward; left alone"}
 	}
 	after, _ := gitOutput(repository, "rev-parse", "HEAD")
@@ -157,7 +173,9 @@ func RefreshRepository(paths Paths, repository BoundRepository) RefreshResult {
 	}
 	changes = append(changes, adopted...)
 
-	result := PullLatest(repository.Path)
+	result := pullLatest(repository.Path, func(before, target string) error {
+		return preflightHookUpdate(repository, before, target)
+	})
 	result.Changes = changes
 	result.repaired = repaired
 	if result.Status == RefreshFailed {
@@ -182,6 +200,87 @@ func RefreshRepository(paths Paths, repository BoundRepository) RefreshResult {
 		result.Message += "; link repair failed: " + err.Error()
 	}
 	return result
+}
+
+func preflightHookUpdate(repository BoundRepository, before, target string) error {
+	if len(repository.Hooks) == 0 {
+		return nil
+	}
+	from := repository.Revision
+	if from == "" {
+		from = before
+	}
+	if _, err := gitOutput(repository.Path, "merge-base", "--is-ancestor", from+"^{commit}", target); err != nil {
+		from = before
+	}
+	renamed := skillRenames(repository.Path, from, target)
+	for _, selected := range repository.Hooks {
+		rel, err := validateHookRelative(selected)
+		if err != nil {
+			return err
+		}
+		if replacement, ok := renamed["hook:"+rel]; ok {
+			rel = replacement
+		}
+		if err := validateHookGitTree(repository.Path, target, rel); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateHookGitTree(repository, revision, rel string) error {
+	clean, err := validateHookRelative(rel)
+	if err != nil {
+		return err
+	}
+	parts := strings.Split(filepath.ToSlash(clean), "/")
+	for index := range parts {
+		component := strings.Join(parts[:index+1], "/")
+		mode, objectType, exists, err := gitTreeEntry(repository, revision, component)
+		if err != nil {
+			return fmt.Errorf("inspect upstream hook path %s: %w", component, err)
+		}
+		if !exists {
+			return nil
+		}
+		if mode != "040000" || objectType != "tree" {
+			return fmt.Errorf("upstream hook path %s is not a directory tree", component)
+		}
+	}
+	marker := filepath.ToSlash(filepath.Join(clean, HookKind.Marker()))
+	mode, objectType, exists, err := gitTreeEntry(repository, revision, marker)
+	if err != nil {
+		return fmt.Errorf("inspect upstream hook marker %s: %w", marker, err)
+	}
+	if !exists {
+		return nil
+	}
+	if objectType != "blob" || (mode != "100644" && mode != "100755") {
+		return fmt.Errorf("upstream hook %s must contain a regular %s", clean, HookKind.Marker())
+	}
+	return nil
+}
+
+func gitTreeEntry(repository, revision, path string) (string, string, bool, error) {
+	command := exec.Command("git", "-C", repository, "ls-tree", "-z", revision, "--", ":(literal)"+filepath.ToSlash(path))
+	body, err := command.Output()
+	if err != nil {
+		return "", "", false, err
+	}
+	if len(body) == 0 {
+		return "", "", false, nil
+	}
+	record := strings.TrimSuffix(string(body), "\x00")
+	if strings.Contains(record, "\x00") {
+		return "", "", false, fmt.Errorf("path matched multiple tree entries")
+	}
+	header, _, found := strings.Cut(record, "\t")
+	fields := strings.Fields(header)
+	if !found || len(fields) != 3 {
+		return "", "", false, fmt.Errorf("unexpected git ls-tree output")
+	}
+	return fields[0], fields[1], true, nil
 }
 
 // findMovedRepository searches only siblings of the old folder. Skill paths
@@ -244,12 +343,22 @@ func adoptRepositoryLinks(paths Paths, repository BoundRepository) ([]RefreshCha
 	updated := ownership.clone()
 	var changes []RefreshChange
 	var adopted []ownedLink
-	for _, rel := range repository.Skills {
+	for _, resource := range repositoryResources(repository) {
+		rel, kind := resource.path, resource.kind
 		source := filepath.Join(repository.Path, rel)
-		if !skillFileExists(source) {
+		exists, markerErr := resourceFileExists(source, kind)
+		if markerErr != nil {
+			return nil, fmt.Errorf("inspect %s %s: %w", kind.Name(), source, markerErr)
+		}
+		if !exists {
 			continue
 		}
-		for _, home := range paths.KnownSkillsHomes() {
+		if kind == HookKind {
+			if err := validateHookSelection(repository.Path, rel, true); err != nil {
+				return nil, err
+			}
+		}
+		for _, home := range paths.KnownResourceHomes(kind) {
 			link := filepath.Join(home, filepath.Base(rel))
 			actual, linkErr := linkTarget(link)
 			if os.IsNotExist(linkErr) {
@@ -263,8 +372,12 @@ func adoptRepositoryLinks(paths Paths, repository BoundRepository) ([]RefreshCha
 			}
 			updated.set(link, actual)
 			adopted = append(adopted, ownedLink{Path: link, Target: actual})
+			name := filepath.Base(rel)
+			if kind == HookKind {
+				name = "hook:" + name
+			}
 			changes = append(changes, RefreshChange{
-				Action: "recorded", Name: filepath.Base(rel),
+				Action: "recorded", Name: name,
 				Message: "ownership of existing installed link in " + shortPath(home, paths.Home),
 			})
 		}
@@ -284,21 +397,31 @@ func adoptRepositoryLinks(paths Paths, repository BoundRepository) ([]RefreshCha
 	return changes, nil
 }
 
-func repositoryIssues(paths Paths, repository BoundRepository) (int, int) {
+func repositoryIssues(paths Paths, repository BoundRepository) (int, int, error) {
 	missing, broken := 0, 0
-	for _, rel := range repository.Skills {
+	for _, resource := range repositoryResources(repository) {
+		rel, kind := resource.path, resource.kind
 		source := filepath.Join(repository.Path, rel)
-		if !skillFileExists(source) {
+		exists, markerErr := resourceFileExists(source, kind)
+		if markerErr != nil {
+			return missing, broken, markerErr
+		}
+		if !exists {
 			missing++
 			continue
 		}
-		link := filepath.Join(paths.Binding(), filepath.Base(rel))
+		if kind == HookKind {
+			if err := validateHookSelection(repository.Path, rel, true); err != nil {
+				return missing, broken, err
+			}
+		}
+		link := filepath.Join(paths.CatalogRoot(kind), filepath.Base(rel))
 		target, err := os.Readlink(link)
 		if err != nil || !samePath(resolveLink(link, target), source) {
 			broken++
 		}
 	}
-	return missing, broken
+	return missing, broken, nil
 }
 
 func moveRepositoryBinding(paths Paths, repository BoundRepository, newPath string) ([]RefreshChange, int, error) {
@@ -344,8 +467,14 @@ func moveRepositoryBinding(paths Paths, repository BoundRepository, newPath stri
 	}
 	updatedOwnership := ownership.clone()
 	var installed []installedRename
-	for _, rel := range repository.Skills {
-		renamed, err := installedRenames(paths, ownership, filepath.Join(repository.Path, rel), filepath.Join(newPath, rel))
+	for _, resource := range repositoryResources(repository) {
+		rel, kind := resource.path, resource.kind
+		if kind == HookKind {
+			if err := validateHookSelection(newPath, rel, true); err != nil {
+				return nil, 0, err
+			}
+		}
+		renamed, err := installedResourceRenames(paths, ownership, filepath.Join(repository.Path, rel), filepath.Join(newPath, rel), kind)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -421,28 +550,70 @@ func repairRepositoryBinding(paths Paths, repository string, renames map[string]
 	if revision != "" {
 		updated[found].Revision = revision
 	}
-	for index, oldRel := range updated[found].Skills {
-		newRel, renamed := renames[filepath.Clean(oldRel)]
-		if !renamed || skillFileExists(filepath.Join(repository, oldRel)) || !skillFileExists(filepath.Join(repository, newRel)) {
-			continue
-		}
-		oldSource := filepath.Join(repository, oldRel)
-		newSource := filepath.Join(repository, newRel)
-		renamedInstalled, err := installedRenames(paths, ownership, oldSource, newSource)
-		if err != nil {
-			return nil, 0, err
-		}
-		installed = append(installed, renamedInstalled...)
-		updated[found].Skills[index] = newRel
-		oldName, newName := filepath.Base(oldRel), filepath.Base(newRel)
-		if oldName == newName {
-			changes = append(changes, RefreshChange{Action: "moved", Name: oldName, Message: fmt.Sprintf("from %s to %s", oldRel, newRel)})
-		} else {
-			changes = append(changes, RefreshChange{Action: "renamed", Name: oldName, Message: "to " + newName})
+	for _, selection := range []struct {
+		kind  ResourceKind
+		paths *[]string
+	}{{SkillKind, &updated[found].Skills}, {HookKind, &updated[found].Hooks}} {
+		for index, oldRel := range *selection.paths {
+			key := filepath.Clean(oldRel)
+			if selection.kind == HookKind {
+				clean, err := validateHookRelative(oldRel)
+				if err != nil {
+					return nil, 0, err
+				}
+				oldRel = clean
+				key = "hook:" + clean
+			}
+			newRel, renamed := renames[key]
+			if !renamed {
+				continue
+			}
+			if selection.kind == HookKind {
+				clean, err := validateHookRelative(newRel)
+				if err != nil {
+					return nil, 0, err
+				}
+				newRel = clean
+				if err := validateHookSelection(repository, oldRel, false); err != nil {
+					return nil, 0, err
+				}
+				if err := validateHookSelection(repository, newRel, true); err != nil {
+					return nil, 0, err
+				}
+			}
+			oldExists, markerErr := resourceFileExists(filepath.Join(repository, oldRel), selection.kind)
+			if markerErr != nil {
+				return nil, 0, markerErr
+			}
+			newExists, markerErr := resourceFileExists(filepath.Join(repository, newRel), selection.kind)
+			if markerErr != nil {
+				return nil, 0, markerErr
+			}
+			if oldExists || !newExists {
+				continue
+			}
+			oldSource, newSource := filepath.Join(repository, oldRel), filepath.Join(repository, newRel)
+			renamedInstalled, err := installedResourceRenames(paths, ownership, oldSource, newSource, selection.kind)
+			if err != nil {
+				return nil, 0, err
+			}
+			installed = append(installed, renamedInstalled...)
+			(*selection.paths)[index] = newRel
+			oldName, newName := filepath.Base(oldRel), filepath.Base(newRel)
+			if oldName == newName {
+				changes = append(changes, RefreshChange{Action: "moved", Name: oldName, Message: fmt.Sprintf("%s from %s to %s", selection.kind.Name(), oldRel, newRel)})
+			} else {
+				message := "to " + newName
+				if selection.kind == HookKind {
+					message = "hook to " + newName
+				}
+				changes = append(changes, RefreshChange{Action: "renamed", Name: oldName, Message: message})
+			}
 		}
 	}
 	applyOwnershipRenames(&updatedOwnership, installed)
 	sort.Strings(updated[found].Skills)
+	sort.Strings(updated[found].Hooks)
 	installedPlan, err := planInstalledRenames(installed)
 	if err != nil {
 		return nil, 0, err
@@ -482,7 +653,8 @@ func skillRenames(repository, before, after string) map[string]string {
 		}
 		oldName, newName := parts[index], parts[index+1]
 		index += 2
-		if filepath.Base(oldName) != "SKILL.md" || filepath.Base(newName) != "SKILL.md" {
+		marker := filepath.Base(oldName)
+		if marker != filepath.Base(newName) || (marker != SkillKind.Marker() && marker != HookKind.Marker()) {
 			continue
 		}
 		if !sameSkillDefinition(repository, before, after, oldName, newName) {
@@ -490,8 +662,19 @@ func skillRenames(repository, before, after string) map[string]string {
 		}
 		oldRel := filepath.Clean(filepath.FromSlash(filepath.Dir(oldName)))
 		newRel := filepath.Clean(filepath.FromSlash(filepath.Dir(newName)))
-		if safeRelative(oldRel) && safeRelative(newRel) {
-			found[oldRel] = newRel
+		valid := safeRelative(oldRel) && safeRelative(newRel)
+		if marker == HookKind.Marker() {
+			var oldErr, newErr error
+			oldRel, oldErr = validateHookRelative(oldRel)
+			newRel, newErr = validateHookRelative(newRel)
+			valid = oldErr == nil && newErr == nil
+		}
+		if valid {
+			key := oldRel
+			if marker == HookKind.Marker() {
+				key = "hook:" + oldRel
+			}
+			found[key] = newRel
 		}
 	}
 	return found
@@ -521,9 +704,24 @@ func normalizeSkillDefinition(body string) string {
 	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
 
-func skillFileExists(dir string) bool {
-	info, err := os.Stat(filepath.Join(dir, "SKILL.md"))
-	return err == nil && !info.IsDir()
+func resourceFileExists(dir string, kind ResourceKind) (bool, error) {
+	return resourceMarker(filepath.Join(dir, kind.Marker()), kind)
+}
+
+type repositoryResource struct {
+	kind ResourceKind
+	path string
+}
+
+func repositoryResources(repository BoundRepository) []repositoryResource {
+	found := make([]repositoryResource, 0, len(repository.Skills)+len(repository.Hooks))
+	for _, rel := range repository.Skills {
+		found = append(found, repositoryResource{SkillKind, rel})
+	}
+	for _, rel := range repository.Hooks {
+		found = append(found, repositoryResource{HookKind, rel})
+	}
+	return found
 }
 
 type installedRename struct {
@@ -534,9 +732,9 @@ type installedRename struct {
 	snapshot  symlinkSnapshot
 }
 
-func installedRenames(paths Paths, ownership ownershipState, oldSource, newSource string) ([]installedRename, error) {
+func installedResourceRenames(paths Paths, ownership ownershipState, oldSource, newSource string, kind ResourceKind) ([]installedRename, error) {
 	var found []installedRename
-	for _, home := range paths.KnownSkillsHomes() {
+	for _, home := range paths.KnownResourceHomes(kind) {
 		oldLink := filepath.Join(home, filepath.Base(oldSource))
 		target, tracked := ownership.target(oldLink)
 		if !tracked || !samePath(target, oldSource) || !ownershipProves(ownership, oldLink) {
@@ -593,6 +791,7 @@ func cloneBindings(bindings []BoundRepository) []BoundRepository {
 	for index, binding := range bindings {
 		cloned[index] = binding
 		cloned[index].Skills = append([]string(nil), binding.Skills...)
+		cloned[index].Hooks = append([]string(nil), binding.Hooks...)
 	}
 	return cloned
 }
@@ -602,7 +801,7 @@ func equalBindings(left, right []BoundRepository) bool {
 		return false
 	}
 	for index := range left {
-		if !samePath(left[index].Path, right[index].Path) || left[index].Identity != right[index].Identity || left[index].Revision != right[index].Revision || !equalStrings(left[index].Skills, right[index].Skills) {
+		if !samePath(left[index].Path, right[index].Path) || left[index].Identity != right[index].Identity || left[index].Revision != right[index].Revision || !equalStrings(left[index].Skills, right[index].Skills) || !equalStrings(left[index].Hooks, right[index].Hooks) {
 			return false
 		}
 	}

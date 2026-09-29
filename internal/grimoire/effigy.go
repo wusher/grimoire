@@ -16,6 +16,11 @@ const (
 )
 
 func Pack(paths Paths, skill Skill) (string, error) {
+	if skill.Kind == HookKind {
+		if err := validateHookResource(skill, true); err != nil {
+			return "", fmt.Errorf("pack hook %s: %w", skill.Name, err)
+		}
+	}
 	output := paths.Output
 	if output == "" && paths.Repo == "" && skill.Repository != "" {
 		output = filepath.Join(skill.Repository, "output")
@@ -26,6 +31,11 @@ func Pack(paths Paths, skill Skill) (string, error) {
 		if err != nil {
 			return "", err
 		}
+	}
+	// Preserve the released skill archive path while preventing a same-name
+	// hook from replacing it.
+	if skill.Kind == HookKind {
+		output = filepath.Join(output, HookKind.Plural())
 	}
 	if err := os.MkdirAll(output, 0o755); err != nil {
 		return "", err
