@@ -272,9 +272,9 @@ func (c *CLI) printTOC(catalog Catalog) {
 	installed := 0
 	if len(catalog.Skills) == 0 {
 		body = append(body,
-			page.Centered(theme.Paint("no skills in this book yet", Grey)),
+			page.Centered(theme.Paint("no skills or hooks in this book yet", Grey)),
 			"",
-			page.Centered(theme.Paint("find them first: grimoire bind", Dim)),
+			page.Centered(theme.Paint("add them with: grimoire bind", Dim)),
 		)
 	} else {
 		body, installed = tocSkillBody(page, theme, catalog.Skills, multipleSkillRepositories(catalog.Skills))

@@ -984,6 +984,11 @@ func TestEmptyTOCShowsTheFamiliar(t *testing.T) {
 	var out bytes.Buffer
 	cli := &CLI{Out: &out, Err: &out, Paths: paths}
 	cli.printTOC(Catalog{})
+	for _, want := range []string{"no skills or hooks in this book yet", "add them with: grimoire bind"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("empty toc missing %q:\n%s", want, out.String())
+		}
+	}
 	if !strings.Contains(out.String(), "an empty book  ·  familiar: claude") {
 		t.Fatalf("empty toc does not show familiar:\n%s", out.String())
 	}
