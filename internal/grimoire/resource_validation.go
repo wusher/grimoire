@@ -39,6 +39,11 @@ func validateHookSelection(repository, rel string, requireMarker bool) error {
 	if err != nil {
 		return err
 	}
+	if info, statErr := os.Stat(root); statErr == nil && !info.IsDir() {
+		return fmt.Errorf("hook repository path %s is not a directory", root)
+	} else if statErr != nil && !os.IsNotExist(statErr) {
+		return fmt.Errorf("inspect hook repository %s: %w", root, statErr)
+	}
 	resolvedRoot := root
 	if resolved, resolveErr := filepath.EvalSymlinks(root); resolveErr == nil {
 		resolvedRoot = resolved

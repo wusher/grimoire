@@ -45,7 +45,7 @@ func (b CatalogBrowser) Browse(skills []Skill) error {
 			drawn = true
 			lastSize = size
 		}
-		if inputPollingSupported() && !inputWaiting(b.In, 100) {
+		if reader.Buffered() == 0 && inputPollingSupported() && !inputWaiting(b.In, 100) {
 			continue
 		}
 		key, err := readKey(reader, b.In)

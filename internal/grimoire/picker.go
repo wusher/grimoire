@@ -54,7 +54,7 @@ func (p Picker) Pick(skills []Skill) ([]Skill, error) {
 			drawn = true
 			lastSize = size
 		}
-		if inputPollingSupported() && !inputWaiting(p.In, 100) {
+		if reader.Buffered() == 0 && inputPollingSupported() && !inputWaiting(p.In, 100) {
 			continue
 		}
 		key, err := readKey(reader, p.In)

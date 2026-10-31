@@ -90,7 +90,7 @@ func writeFamiliar(paths Paths, name string) error {
 
 func commandNeedsFamiliar(command string) bool {
 	switch command {
-	case "toc", "list", "ls", "cast", "banish", "volley", "hone":
+	case "toc", "list", "ls", "cast", "banish", "volley", "hone", "bind", "bond":
 		return true
 	default:
 		return false
@@ -257,7 +257,7 @@ func (p FamiliarPicker) Pick(familiars []agentFamiliar, current string) (string,
 			drawn = true
 			lastSize = size
 		}
-		if inputPollingSupported() && !inputWaiting(p.In, 100) {
+		if reader.Buffered() == 0 && inputPollingSupported() && !inputWaiting(p.In, 100) {
 			continue
 		}
 		key, err := readKey(reader, p.In)

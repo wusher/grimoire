@@ -59,13 +59,15 @@ make install   # installs into GOBIN
 ```mermaid
 flowchart TD
     A["go install github.com/wusher/grimoire@latest"] --> C["cd into a Git repository<br/>with SKILL.md or hooks/**/HOOK.md"]
-    C --> D["grimoire bind<br/>pick resources to keep"]
-    D --> E["grimoire toc<br/>review the catalog"]
+    C --> D["grimoire bind<br/>pick, bind, and install resources"]
+    D --> J
+    J --> E["grimoire toc<br/>review the catalog"]
     E --> F{next step}
     F --> G["grimoire cast RESOURCE<br/>link one skill or hook"]
     F --> H["grimoire volley<br/>link every resource"]
-    G --> J["resource linked into<br/>the familiar's kind-specific home"]
+    G --> J
     H --> J
+    J["resource linked into<br/>the familiar's kind-specific home"]
     J --> K["grimoire banish RESOURCE<br/>remove the links"]
     J --> L["grimoire hone<br/>repair broken links"]
     J --> M["grimoire effigy RESOURCE<br/>pack a zip"]
@@ -77,7 +79,7 @@ Quick start:
 
 ```sh
 cd ~/code/my-repo            # a Git repository with SKILL.md or hooks/**/HOOK.md
-grimoire bind                # fuzzy picker; or pass names to skip it
+grimoire bind                # choose, bind, and install resources
 grimoire toc                 # browse the catalog
 grimoire cast some-skill     # link one skill into your agent
 ```
@@ -97,7 +99,8 @@ a question. Run
 
 The selection is stored in `~/.config/grimoire/bindings.json`, so every other
 command works from any directory. Run `bind` again in the same repository to add
-resources. Run `unbind` from any directory to choose resources to remove. Run `index`
+and install more resources, or name a bound resource to retry its installation.
+Run `unbind` from any directory to choose resources to remove. Run `index`
 to list every bound repository. In a terminal, it then asks if you want to
 refresh them. Use `--refresh` to update them without the question.
 
@@ -152,8 +155,8 @@ $ grimoire --help
 ║                                                                            │
 ║   T H E   B I N D I N G ────────────────────────────────────────────────   │
 ║                                                                            │
-║      bind [SELECTOR...]    Adds skills and hooks from this repository.     │
-║                            Alias: bond.                                    │
+║      bind [SELECTOR...]    Adds and installs resources from this           │
+║                            repository. Alias: bond.                        │
 ║      unbind [SELECTOR...]  Forgets bound resources. Without one, opens the │
 ║                            tree. Alias: unbond.                            │
 ║      index                 Lists bound repositories and familiar homes.   │
@@ -178,11 +181,12 @@ $ grimoire --help
 
 ### `grimoire bind [SELECTOR...]`
 
-Adds skills and hooks found in the current Git repository. Skills are found
+Adds and installs skills and hooks found in the current Git repository. Skills are found
 recursively anywhere below the Git root; hooks are found recursively only below
 its top-level `hooks/` container. Existing bindings remain. The picker includes
-a `bind all` choice. Names or repository-relative paths bypass the picker.
-`bond` is an alias.
+a `bind all` choice. Names or repository-relative paths bypass the picker;
+explicit selection is idempotent, so naming an already-bound resource retries
+installation. `bond` is an alias.
 
 Bare names and paths remain valid when unique. Use `skill:NAME`, `hook:NAME`,
 `skill:path/to/name`, or `hook:hooks/group/name` to resolve ambiguity. A skill
@@ -190,7 +194,10 @@ and hook may share a basename because their catalogs and install roots differ;
 two selected resources of the same kind may not share a basename.
 
 After it updates the binding, the command lists each catalog link it created,
-its target, and the changed binding file.
+its target, and the changed binding file. It then uses the same safe installation
+behavior as `cast`, linking every selected resource into the current familiar's
+kind-specific home. A blocked destination is reported and makes the command
+fail; the successful binding remains so installation can be retried.
 
 If an older Grimoire catalog-root symlink exists, the command leaves it unchanged.
 Add `--replace-legacy-root` to approve its replacement with managed skill links.
@@ -230,6 +237,9 @@ $ grimoire bind test-skill
 ╙───────────────────────── /tmp/opencode/test-repo ──────────────────────────┘
 
 /tmp/opencode/test-repo 1 skill bound
+test-skill installed
+created link ~/.agents/skills/test-skill -> /tmp/opencode/test-repo/test-skill
+1 installed · linked into ~/.agents/skills/
 ```
 
 ### `grimoire unbind [SELECTOR...]`
