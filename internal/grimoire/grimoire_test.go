@@ -2253,3 +2253,56 @@ func TestCLIIndexNeedsABoundRepository(t *testing.T) {
 		t.Fatalf("index error = %s", out.String())
 	}
 }
+
+func TestBoringHelpDoesNotPromisePickers(t *testing.T) {
+	var output bytes.Buffer
+	cli := &CLI{Config: Config{Boring: true}}
+	cli.help(&output)
+	help := output.String()
+	for _, name := range []string{"cast [RESOURCE]", "banish [RESOURCE]", "effigy [RESOURCE]", "unbind [SELECTOR...]"} {
+		if !strings.Contains(help, name) {
+			t.Errorf("boring help omits %q", name)
+		}
+	}
+	if strings.Contains(help, "opens the tree") || strings.Contains(help, "opens a picker") {
+		t.Errorf("boring help promises an interactive picker:\n%s", help)
+	}
+	for _, section := range helpSections {
+		for _, entry := range section.entries {
+			if !strings.Contains(help, entry.plain) {
+				t.Errorf("boring help omits the plain text of %q:\n%s", entry.name, help)
+			}
+		}
+	}
+	if count := strings.Count(help, "RESOURCE required"); count != 3 {
+		t.Errorf("boring help has %d RESOURCE required notices, want 3:\n%s", count, help)
+	}
+	if count := strings.Count(help, "SELECTOR required"); count != 1 {
+		t.Errorf("boring help has %d SELECTOR required notices, want 1:\n%s", count, help)
+	}
+	if count := strings.Count(help, " required"); count != 4 {
+		t.Errorf("boring help has %d required notices, want 4:\n%s", count, help)
+	}
+}
+
+func TestHelpSectionsKeepRichAndPlainIntent(t *testing.T) {
+	rich, plain := "", ""
+	for _, section := range helpSections {
+		for _, entry := range section.entries {
+			rich += entry.rich + "\n"
+			plain += entry.plain + "\n"
+		}
+	}
+	if !strings.Contains(rich, "opens the tree") || !strings.Contains(rich, "opens a picker") {
+		t.Errorf("rich help entries lost the interactive guidance:\n%s", rich)
+	}
+	if strings.Contains(plain, "opens the tree") || strings.Contains(plain, "opens a picker") {
+		t.Errorf("plain help entries promise an interactive picker:\n%s", plain)
+	}
+	if strings.Contains(rich, " required") {
+		t.Errorf("rich help entries carry the non-interactive requirement notices:\n%s", rich)
+	}
+	if !strings.Contains(plain, "RESOURCE required") || !strings.Contains(plain, "SELECTOR required") {
+		t.Errorf("plain help entries lost the requirement notices:\n%s", plain)
+	}
+}

@@ -101,6 +101,39 @@ func (c *CLI) Run(_ context.Context, args []string) int {
 	return code
 }
 
+type helpEntry struct {
+	name, rich, plain string
+}
+
+type helpSection struct {
+	title   string
+	entries []helpEntry
+}
+
+var helpSections = []helpSection{
+	{"the book", []helpEntry{
+		{"toc | list | ls", "Opens the searchable catalog.", "List bound skills and hooks."},
+	}},
+	{"the spells", []helpEntry{
+		{"cast [RESOURCE]", "Links one bound skill or hook. Without a selector, opens the tree.", "Link one bound skill or hook; RESOURCE required."},
+		{"banish [RESOURCE]", "Removes one linked resource. Without a selector, opens the tree.", "Remove one linked skill or hook; RESOURCE required."},
+		{"volley", "Links every skill and hook in the book.", "Link all bound skills and hooks."},
+		{"effigy [RESOURCE]", "Zips one bound skill or hook. Without a selector, opens a picker.", "Write one resource zip file; RESOURCE required."},
+	}},
+	{"the binding", []helpEntry{
+		{"bind [SELECTOR...]", "Adds and installs skills and hooks from this Git repository. Alias: bond.", "Add and install resources from this repository. Alias: bond."},
+		{"unbind [SELECTOR...]", "Forgets bound skills. Hook selectors work too. Without selectors, opens the tree. Alias: unbond.", "Unbind resources; SELECTOR required. Alias: unbond."},
+		{"  --replace-legacy-root", "Approves replacement of an old catalog-root link.", "Approve replacement of an old catalog-root link."},
+		{"index", "Lists bound repositories and every familiar home.", "List repositories and familiar homes."},
+		{"  --refresh", "Refreshes now and repairs managed links.", "Refresh now and repair managed links."},
+		{"familiar [NAME]", "Chooses Global, Claude, OpenCode, or Codex.", "Set global, claude, opencode, or codex."},
+		{"config boring [true|false]", "Turns minimal, non-interactive output on or off.", "Set minimal, non-interactive output."},
+		{"hone", "Repairs the links you already installed.", "Repair installed links."},
+		{"  --dry-run", "Shows the report. Changes nothing.", "Show the report without changes."},
+		{"help | -h | --help", "Shows this page.", "Show this help."},
+	}},
+}
+
 func (c *CLI) help(out io.Writer) {
 	if c.Config.Boring {
 		c.boringHelp(out)
@@ -120,27 +153,13 @@ func (c *CLI) help(out io.Writer) {
 	}
 	help := []string{content.Section("how to say it"), ""}
 	help = append(help, content.Centered(theme.Paint("grimoire", Violet)+" "+theme.Paint("<command> [arguments]", Dim)), "")
-	help = appendHelpBlock(help, content, theme, "the book", [][2]string{
-		{"toc | list | ls", "Opens the searchable catalog."},
-	})
-	help = appendHelpBlock(help, content, theme, "the spells", [][2]string{
-		{"cast [RESOURCE]", "Links one bound skill or hook. Without a selector, opens the tree."},
-		{"banish [RESOURCE]", "Removes one linked resource. Without a selector, opens the tree."},
-		{"volley", "Links every skill and hook in the book."},
-		{"effigy [RESOURCE]", "Zips one bound skill or hook. Without a selector, opens a picker."},
-	})
-	help = appendHelpBlock(help, content, theme, "the binding", [][2]string{
-		{"bind [SELECTOR...]", "Adds and installs skills and hooks from this Git repository. Alias: bond."},
-		{"unbind [SELECTOR...]", "Forgets bound skills. Hook selectors work too. Without selectors, opens the tree. Alias: unbond."},
-		{"  --replace-legacy-root", "Approves replacement of an old catalog-root link."},
-		{"index", "Lists bound repositories and every familiar home."},
-		{"  --refresh", "Refreshes now and repairs managed links."},
-		{"familiar [NAME]", "Chooses Global, Claude, OpenCode, or Codex."},
-		{"config boring [true|false]", "Turns minimal, non-interactive output on or off."},
-		{"hone", "Repairs the links you already installed."},
-		{"  --dry-run", "Shows the report. Changes nothing."},
-		{"help | -h | --help", "Shows this page."},
-	})
+	for _, section := range helpSections {
+		rows := make([][2]string, 0, len(section.entries))
+		for _, entry := range section.entries {
+			rows = append(rows, [2]string{entry.name, entry.rich})
+		}
+		help = appendHelpBlock(help, content, theme, section.title, rows)
+	}
 	help = append(help, content.Section("worth knowing"), "")
 	for _, note := range []string{
 		"Bind finds SKILL.md recursively and HOOK.md only below the top-level hooks/ folder.",
@@ -179,27 +198,40 @@ func (c *CLI) boringHelp(out io.Writer) {
 	fmt.Fprintln(out, "Usage: grimoire <command> [arguments]")
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "Commands:")
-	for _, line := range []string{
-		"  toc | list | ls             List bound skills and hooks.",
-		"  cast [RESOURCE]             Link one bound skill or hook.",
-		"  banish [RESOURCE]           Remove one linked skill or hook.",
-		"  volley                      Link all bound skills and hooks.",
-		"  effigy [RESOURCE]           Write one resource zip file.",
-		"  bind [SELECTOR...]          Add and install resources from this repository. Alias: bond.",
-		"  unbind [SELECTOR...]        Unbind resources. Alias: unbond.",
-		"    --replace-legacy-root     Approve replacement of an old catalog-root link.",
-		"  index [--refresh]           List repositories and familiar homes; optionally refresh.",
-		"  familiar [NAME]             Set global, claude, opencode, or codex.",
-		"  config boring [true|false]  Set minimal, non-interactive output.",
-		"  hone [--dry-run]            Repair installed links.",
-		"  help | -h | --help          Show this help.",
-	} {
-		if visibleWidth(line) > c.theme(out).columns {
-			c.writeResponsive(out, "", Grey, strings.TrimSpace(line), Grey)
-		} else {
-			fmt.Fprintln(out, line)
+	for _, section := range helpSections {
+		for _, entry := range section.entries {
+			line := plainHelpLine(entry, plainHelpColumn())
+			if visibleWidth(line) > c.theme(out).columns {
+				c.writeResponsive(out, "", Grey, strings.TrimSpace(line), Grey)
+			} else {
+				fmt.Fprintln(out, line)
+			}
 		}
 	}
+}
+
+// plainHelpColumn returns the column where plain help descriptions start.
+func plainHelpColumn() int {
+	width := 0
+	for _, section := range helpSections {
+		for _, entry := range section.entries {
+			if measured := visibleWidth(strings.TrimSpace(entry.name)); measured > width {
+				width = measured
+			}
+		}
+	}
+	return 2 + width + 1
+}
+
+// plainHelpLine renders one plain help row and keeps the indent of sub-commands.
+func plainHelpLine(entry helpEntry, column int) string {
+	name := strings.TrimSpace(entry.name)
+	indent := 2 + len(entry.name) - len(name)
+	padding := column - indent - visibleWidth(name)
+	if padding < 1 {
+		padding = 1
+	}
+	return strings.Repeat(" ", indent) + name + strings.Repeat(" ", padding) + entry.plain
 }
 
 func appendHelpBlock(body []string, page Page, theme Theme, name string, rows [][2]string) []string {
